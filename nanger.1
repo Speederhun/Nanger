@@ -1,4 +1,4 @@
-.TH NANGER 1 "2026" "nanger 1.9.1" "User Commands"
+.TH NANGER 1 "2026" "nanger 1.10.0" "User Commands"
 .SH NAME
 nanger \- file manager and text editor in one (ranger + nano + vim)
 .SH SYNOPSIS
@@ -64,6 +64,18 @@ search in file contents (Enter on a result opens the file at that line)
 .TP
 .B m / '
 set a bookmark / jump to a bookmark (\(aq\(aq = previous folder, ? = list)
+.TP
+.B P / O
+change the permissions (chmod) / owner (chown) of the marked items; \fB\-R\fR makes it recursive
+.TP
+.B =
+compare two marked files side by side
+.TP
+.B M
+connect to a remote folder over SSH (user@host:/path, requires sshfs)
+.TP
+.B T
+colour theme menu
 .TP
 .B .
 show hidden files

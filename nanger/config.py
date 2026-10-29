@@ -8,6 +8,8 @@ COLOR_NAMES = ("default", "black", "red", "green", "yellow", "blue", "magenta", 
 COLOR_KEYS = ("directory", "executable", "link", "archive", "comment", "string", "number", "keyword",
               "error", "marked")
 SORT_MODES = ("name", "size", "date", "ext")
+THEME_NAMES = ("default", "dark", "light", "solarized-dark", "solarized-light", "gruvbox",
+               "nord")
 
 DEFAULT_TEXT = """\
 # nanger configuration. Lines starting with # or ; are comments.
@@ -26,6 +28,9 @@ show_hidden = no
 sort = name
 # reverse the sort order (folders always stay on top)
 sort_reverse = no
+# colour theme: default (terminal colours), dark, light, solarized-dark, solarized-light,
+# gruvbox, nord  (also: press T in the file manager)
+theme = default
 # mouse support (click, double-click, wheel); hold Shift to select text with the terminal
 mouse = yes
 # image previews: auto, kitty, iterm, sixel (real pixels) or blocks (coloured text cells)
@@ -68,6 +73,7 @@ class Settings:
         self.git = True
         self.graphics = "auto"
         self.mouse = True
+        self.theme = "default"
         self.colors = {}
         self.keymaps = {"browser": {}, "editor": {}}
         self.warnings = []
@@ -135,6 +141,10 @@ def load(path=None):
                 settings.line_numbers = _bool(raw)
             elif key == "show_hidden":
                 settings.show_hidden = _bool(raw)
+            elif key == "theme":
+                if raw.strip().lower() not in THEME_NAMES:
+                    raise ValueError(raw)
+                settings.theme = raw.strip().lower()
             elif key == "mouse":
                 settings.mouse = _bool(raw)
             elif key == "graphics":
@@ -199,4 +209,31 @@ def save_keymaps(path=None):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(text)
+    os.replace(tmp, path)
+
+
+def save_setting(section, key, value, path=None):
+    """Set `key = value` in [section] of the config file (keeps everything else)."""
+    import re
+    path = path or config_path()
+    write_default(path)
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    head = "[%s]" % section
+    start = next((i for i, l in enumerate(lines) if l.strip() == head), None)
+    new = "%s = %s" % (key, value)
+    if start is None:
+        lines += ["", head, new]
+    else:
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")),
+                   len(lines))
+        hit = next((i for i in range(start + 1, end)
+                    if re.match(r"\s*%s\s*=" % re.escape(key), lines[i])), None)
+        if hit is not None:
+            lines[hit] = new
+        else:
+            lines.insert(start + 1, new)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
     os.replace(tmp, path)

@@ -16,6 +16,10 @@ English and Hungarian interface · Hungarian docs: [README.hu.md](README.hu.md)
 - **Mouse support** (click, double-click, wheel, clickable help bar, drag to select)
 - Safe delete to the freedesktop **trash**
 - Opens documents/media with the desktop's default program (`xdg-open`)
+- **Colour themes** (`T`): dark, light, Solarized, Gruvbox, Nord
+- **Permissions / owner** of the marked files (`P`, `O`), **side-by-side compare** (`=`, `:diff`)
+- **Remote folders over SSH** (`M` or `nanger user@host:/path`, via `sshfs`)
+- **Crash recovery**: unsaved edits are snapshotted every 5 s and offered back after a crash or closed terminal
 - Config file with colours, plus a **menu to change any keyboard shortcut** (`K` / `F9`)
 
 ## Install
@@ -106,6 +110,10 @@ After that, quitting `nanger` leaves your terminal in the folder you were browsi
 | `m` `'` | set / jump to bookmark |
 | `s` | sort menu: `n` name, `d` date, `s` size, `e` extension, `r` reverse |
 | `.` `v` `o` | hidden files, built-in viewer, external open |
+| `P` `O` | permissions (`chmod`) / owner (`chown`) of the marked files (sudo offered if needed) |
+| `=` | compare two marked files side by side (editor: `:diff` = buffer vs. disk) |
+| `M` | connect to `user@host:/path` over SSH (needs `sshfs`; also `nanger user@host:/path`) |
+| `T` | colour themes: dark, light, solarized-dark/light, gruvbox, nord (saved) |
 
 | Editor | |
 |---|---|

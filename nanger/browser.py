@@ -229,6 +229,136 @@ class Browser:
         self.refresh(first)
         app.info(tr("Extracted {n} archive(s)").format(n=len(dests)))
 
+    def compare(self):
+        """=: compare two marked files, or the marked one with the current one."""
+        from .util import load_text
+        app = self.app
+        files = [p for p in self.targets() if os.path.isfile(p)]
+        cur = self.current()
+        if len(files) == 1 and cur and os.path.isfile(cur) and cur != files[0]:
+            files.append(cur)
+        if len(files) != 2:
+            app.error(tr("Mark two files (Space) to compare them"))
+            return
+        try:
+            a, b = load_text(files[0])[0], load_text(files[1])[0]
+        except (OSError, ValueError) as e:
+            app.error(tr("Cannot open: {error}").format(error=getattr(e, "strerror", None) or e))
+            return
+        app.show_diff(os.path.basename(files[0]), a, os.path.basename(files[1]), b)
+
+    def connect(self):
+        """M: mount a remote folder (user@host:/path) with sshfs, or unmount the current one."""
+        from . import remote
+        app = self.app
+        here = remote.mount_of(self.cwd)
+        text = app.prompt(tr("Remote (user@host:/path){hint}: ").format(
+            hint=tr(", empty = disconnect") if here else ""), "")
+        if text is None:
+            return
+        if not text.strip():
+            if here:
+                mp, uh = here
+                self.cd(os.path.expanduser("~"))
+                remote.unmount(mp)
+                app.info(tr("Disconnected: {host}").format(host=uh))
+            return
+        app.info(tr("Connecting..."))
+        app.draw()
+        try:
+            mp = remote.mount(text)
+        except remote.RemoteError as e:
+            app.error(str(e))
+            return
+        self.cd(mp)
+        app.info(tr("Connected: {host}").format(host=remote.MOUNTS.get(mp, text)))
+
+    def _run_tool(self, cmd):
+        r = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+                           stdin=subprocess.DEVNULL, timeout=120)
+        return r.returncode, (r.stderr.strip().splitlines() or [""])[-1]
+
+    def permissions(self):
+        """chmod on the marked items (or the current one): 644, u+x, a-w, -R 755 ..."""
+        import re
+        app = self.app
+        paths = self.targets()
+        if not paths:
+            return
+        default = ""
+        if len(paths) == 1:
+            try:
+                default = "%o" % (os.lstat(paths[0]).st_mode & 0o7777)
+            except OSError:
+                pass
+        text = app.prompt(tr("Permissions (644, u+x, a-w; -R = recursive): "), default)
+        if not text:
+            return
+        parts = text.split()
+        rec = "-R" in parts
+        parts = [x for x in parts if x != "-R"]
+        mode = parts[0] if len(parts) == 1 else ""
+        sym = r"[ugoa]*[+\-=][rwxXst]*(,[ugoa]*[+\-=][rwxXst]*)*"
+        if not (re.fullmatch(r"[0-7]{3,4}", mode) or re.fullmatch(sym, mode)):
+            app.error(tr("Invalid mode: {mode}").format(mode=text))
+            return
+        cmd = ["chmod"] + (["-R"] if rec else []) + [mode, "--"] + paths
+        try:
+            rc, err = self._run_tool(cmd)
+        except (OSError, subprocess.SubprocessError) as e:
+            app.error(tr("Failed: {error}").format(error=e))
+            return
+        self.refresh(os.path.basename(paths[0]))
+        if rc:
+            app.error(tr("Failed: {error}").format(error=err))
+        else:
+            app.info(tr("Permissions {mode} set on {n} items").format(mode=mode, n=len(paths)))
+
+    def owner(self):
+        """chown on the marked items (or the current one); offers sudo when not permitted."""
+        import re
+        import shlex
+        app = self.app
+        paths = self.targets()
+        if not paths:
+            return
+        default = ""
+        if len(paths) == 1:
+            try:
+                import grp
+                import pwd
+                st = os.lstat(paths[0])
+                default = "%s:%s" % (pwd.getpwuid(st.st_uid).pw_name,
+                                     grp.getgrgid(st.st_gid).gr_name)
+            except (OSError, KeyError, ImportError):
+                pass
+        text = app.prompt(tr("Owner (user, user:group, :group; -R = recursive): "), default)
+        if not text:
+            return
+        parts = text.split()
+        rec = "-R" in parts
+        parts = [x for x in parts if x != "-R"]
+        who = parts[0] if len(parts) == 1 else ""
+        if not re.fullmatch(r"[\w.\-]*(:[\w.\-]*)?", who) or not who:
+            app.error(tr("Invalid owner: {who}").format(who=text))
+            return
+        cmd = ["chown"] + (["-R"] if rec else []) + [who, "--"] + paths
+        try:
+            rc, err = self._run_tool(cmd)
+        except (OSError, subprocess.SubprocessError) as e:
+            app.error(tr("Failed: {error}").format(error=e))
+            return
+        if rc and os.geteuid() != 0 and shutil.which("sudo"):
+            a = app.ask(tr("Not permitted. Retry with sudo? (y/n) "))
+            if a in ("y", "i"):
+                app.shell("sudo " + " ".join(shlex.quote(c) for c in cmd), self.cwd)
+                rc = 0
+        self.refresh(os.path.basename(paths[0]))
+        if rc:
+            app.error(tr("Failed: {error}").format(error=err))
+        else:
+            app.info(tr("Owner set to {who} on {n} items").format(who=who, n=len(paths)))
+
     def right_status(self):
         """Bottom-right text: items in the folder, or the total size of the selection."""
         if self.tagged:
@@ -447,6 +577,16 @@ class Browser:
             app.request_quit()
         elif k in ("?", curses.KEY_F1):
             app.show_help(browser_help())
+        elif k == "=":
+            self.compare()
+        elif k == "M":
+            self.connect()
+        elif k == "P":
+            self.permissions()
+        elif k == "O":
+            self.owner()
+        elif k == "T":
+            app.show_themes()
         elif k in ("K", curses.KEY_F9):
             app.show_keys("browser")
 

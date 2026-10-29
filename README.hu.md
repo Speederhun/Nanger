@@ -5,6 +5,13 @@ szerkesztővel, amely olyan egyszerű, mint a nano (Ctrl-billentyűk, mindig lá
 de tud vim-es dolgokat is (regex-csere, `:g/minta/d`, rendezés, szűrés shell-parancson,
 makrók, visszavonás).
 
+## Újdonságok az 1.10-ben
+
+színtémák (`T`: sötét, világos, Solarized, Gruvbox, Nord), jogosultság és tulajdonos a kijelölteken
+(`P`, `O`), fájl-összehasonlítás egymás mellett (`=`, szerkesztőben `:diff`), távoli mappák SSH-n
+(`M` vagy `nanger user@host:/mappa`, `sshfs` kell), automatikus mentés és helyreállítás
+(5 mp-enként pillanatkép; összeomlás vagy bezárt terminál után visszakérdez).
+
 ## Újdonságok az 1.2-ben
 
 git-állapot a listában és a szerkesztő szélén, több megnyitott fájl (fülek), könyvjelzők

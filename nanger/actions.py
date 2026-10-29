@@ -14,7 +14,9 @@ BROWSER = [
     ("Sort", "s"), ("Hidden files", "."), ("View", "v"), ("External", "o"),
     ("Open files", "b"), ("Shell", "S"), ("Command", "!"), ("Quit", "q"), ("Help", "?"),
     ("Compress", "Z"), ("Extract", "U"), ("Folder size", "i"), ("Select all", "a"),
-    ("Invert selection", "A"),
+    ("Invert selection", "A"), ("Colour theme", "T"),
+    ("Permissions", "P"), ("Owner", "O"),
+    ("Connect (SSH)", "M"), ("Compare", "="),
 ]
 EDITOR = [
     ("Save", "ctrl-s"), ("Save as: ", "ctrl-o"), ("Close", "ctrl-q"), ("Find", "ctrl-f"),

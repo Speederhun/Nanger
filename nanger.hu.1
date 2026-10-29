@@ -1,4 +1,4 @@
-.TH NANGER 1 "2026" "nanger 1.9.1" "Felhasználói parancsok"
+.TH NANGER 1 "2026" "nanger 1.10.0" "Felhasználói parancsok"
 .SH NÉV
 nanger \- fájlkezelő és szövegszerkesztő egyben (ranger + nano + vim)
 .SH ÁTTEKINTÉS
@@ -54,6 +54,18 @@ másolás / kivágás / beillesztés
 .TP
 .B /
 keresés név alapján
+.TP
+.B P / O
+a kijelöltek jogosultsága (chmod) / tulajdonosa (chown); a \fB\-R\fR rekurzívvá teszi
+.TP
+.B =
+két kijelölt fájl összehasonlítása egymás mellett
+.TP
+.B M
+távoli mappa SSH-n (user@host:/mappa, sshfs szükséges)
+.TP
+.B T
+színtéma menü
 .TP
 .B .
 rejtett fájlok

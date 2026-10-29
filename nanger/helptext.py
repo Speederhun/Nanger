@@ -112,6 +112,11 @@ MOVING (arrows or vim keys)
   Z   pack the marked files (or the current one) into .7z / .zip / .tar.gz
   U   extract the archive(s) into a folder of the same name
   i   size of the marked items / current folder
+  P   permissions (chmod) of the marked items: 644, u+x, a-w; add -R for folders
+  O   owner (chown): user, user:group, :group  (offers sudo when not permitted)
+  =   compare two marked files (or the marked one with the current one), side by side
+  M   connect to a remote folder over SSH (user@host:/path, needs sshfs); empty = disconnect
+  T   colour theme menu (dark, light, solarized, gruvbox, nord)
   . or zh   show / hide hidden files
   mouse   click select, double-click open, wheel scroll, right-click or the side "back"
           button = previous folder (forward button = next), drag in the editor to select
@@ -161,6 +166,11 @@ MOZGÁS (nyilak vagy vim-billentyűk)
   Z   a kijelöltek (vagy az aktuális) becsomagolása .7z / .zip / .tar.gz-be
   U   archívum kicsomagolása a nevével azonos mappába
   i   a kijelöltek / az aktuális mappa mérete
+  P   a kijelöltek jogosultsága (chmod): 644, u+x, a-w; mappákhoz -R
+  O   tulajdonos (chown): user, user:csoport, :csoport  (ha nem engedélyezett, sudo-t kínál)
+  =   két kijelölt fájl (vagy a kijelölt és az aktuális) összehasonlítása egymás mellett
+  M   távoli mappa SSH-n (user@host:/mappa, sshfs kell); üresen = lecsatlakozás
+  T   színtéma menü (sötét, világos, solarized, gruvbox, nord)
   . vagy zh   rejtett fájlok mutatása / elrejtése
   egér    kattintás kijelöl, dupla kattintás megnyit, görgő lapoz, jobb gomb vagy az oldalsó
           „vissza” gomb = előző mappa (előre gomb = következő), szerkesztőben húzás = kijelölés

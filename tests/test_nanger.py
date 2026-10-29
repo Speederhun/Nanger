@@ -7,6 +7,7 @@ import importlib.machinery
 import importlib.util
 import os
 import shutil
+import signal
 import stat
 import tarfile
 import time
@@ -1078,3 +1079,198 @@ def test_7z_preview_is_async_and_readable(spawn, work):
     t.pump(1.0)
     assert "szoveg a.txt" in t.text() and "2.0K" in t.text()
     assert "....A" not in t.text()
+
+
+def test_theme_menu_applies_and_persists(spawn, work, env):
+    (work / "a.txt").write_text("x")
+    t = spawn(".")
+    t.send("T")
+    assert "Színtéma" in t.row(0)
+    for _ in range(3):                       # default, dark, light, solarized-dark
+        t.send("j")
+    t.send("\r")
+    assert "Téma: solarized-dark" in t.text()
+    cfg = (Path(env["XDG_CONFIG_HOME"]) / "nanger" / "config.ini").read_text()
+    assert "theme = solarized-dark" in cfg
+    # a téma háttere: 234-es szín = 1c1c1c
+    assert t.scr.buffer[20][5].bg == "1c1c1c"
+    t2 = spawn(".")                          # újraindítás: megmarad
+    assert t2.scr.buffer[20][5].bg == "1c1c1c"
+
+
+def test_theme_names_match_between_config_and_term():
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from nanger import config, term
+    assert tuple(term.THEMES) == config.THEME_NAMES
+
+
+def test_chmod_on_selection(spawn, work):
+    a, b = work / "a.sh", work / "b.sh"
+    for f in (a, b):
+        f.write_text("x")
+        f.chmod(0o644)
+    t = spawn(".")
+    t.send(" ")
+    t.send(" ")                                  # a és b kijelölve
+    t.send("P")
+    assert "Jogosultságok" in t.text()
+    t.send("\x15")                               # Ctrl+U
+    t.send("755\r")
+    assert "755 jogosultság beállítva 2 elemen" in t.text()
+    assert (a.stat().st_mode & 0o777) == 0o755
+    assert (b.stat().st_mode & 0o777) == 0o755
+    t.send("P")
+    t.send("\x15")
+    t.send("u+x;rm\r")                           # érvénytelen -> hiba, semmi sem fut
+    assert "Érvénytelen jogosultság" in t.text()
+
+
+def test_chown_to_self_and_invalid(spawn, work):
+    import grp
+    import pwd
+    f = work / "a.txt"
+    f.write_text("x")
+    t = spawn(".")
+    me = pwd.getpwuid(os.getuid()).pw_name
+    t.send("O")
+    assert "Tulajdonos" in t.text()
+    t.send("\x15")
+    t.send(me + "\r")
+    assert "Tulajdonos (%s) beállítva 1 elemen" % me in t.text()
+    t.send("O")
+    t.send("\x15")
+    t.send("a b;c\r")
+    assert "Érvénytelen tulajdonos" in t.text()
+
+
+def test_remote_spec_parsing():
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from nanger import remote
+    assert remote.parse("me@box:/srv/x") == ("me@box", None, "/srv/x")
+    assert remote.parse("box:") == ("box", None, "")
+    assert remote.parse("sftp://me@box:2222/srv") == ("me@box", "2222", "/srv")
+    assert remote.parse("/tmp/a:b") is None
+    assert remote.parse("./a:b") is None
+    assert remote.parse("C:") is None
+    cmd = remote.command("me@box", "2222", "/srv", "/mnt/x")
+    assert cmd[:3] == ["sshfs", "me@box:/srv", "/mnt/x"] and "BatchMode=yes" in cmd[4]
+    assert cmd[-2:] == ["-p", "2222"]
+
+
+def test_remote_connect_with_fake_sshfs(spawn, work, env, tmp_path):
+    """A fake sshfs puts a file in the mountpoint; the real flow (M, cd, unmount) is exercised."""
+    bin_ = tmp_path / "fakebin"
+    bin_.mkdir()
+    (bin_ / "sshfs").write_text('#!/bin/sh\necho "remote content" > "$2/remote.txt"\n')
+    (bin_ / "fusermount3").write_text('#!/bin/sh\nrm -f "$3/remote.txt"\n')
+    for f in bin_.iterdir():
+        f.chmod(0o755)
+    t = spawn(".", extra_env={"PATH": "%s:%s" % (bin_, os.environ["PATH"])})
+    t.send("M")
+    assert "Távoli" in t.text()
+    t.send("me@box:/srv\r")
+    assert "Csatlakozva: me@box" in t.text()
+    assert "remote.txt" in t.text()
+    t.send("M")
+    t.send("\r")
+    assert "Lecsatlakozva: me@box" in t.text()
+    assert "remote.txt" not in t.text()
+
+
+def test_remote_without_sshfs_reports_error(spawn, work, tmp_path):
+    bare = tmp_path / "barebin"
+    bare.mkdir()
+    for n in ("python3", "env"):
+        (bare / n).symlink_to(shutil.which(n))
+    t = spawn(".", extra_env={"PATH": str(bare)})
+    t.send("M")
+    t.send("me@box:/srv\r")
+    assert "sshfs" in t.text()
+
+
+def test_diff_two_marked_files(spawn, work):
+    (work / "a.txt").write_text("one\ntwo\nthree\nfour\n")
+    (work / "b.txt").write_text("one\n2\nthree\nfour\nfive\n")
+    t = spawn(".")
+    t.send(" ")
+    t.send(" ")
+    t.send("=")
+    assert "összehasonlítás" in t.row(0)
+    assert "2 eltérés" in t.row(0)
+    txt = t.text()
+    assert "- two" in txt and "+ 2" in txt and "+ five" in txt
+    t.send("n")                                   # következő eltérés: nem hibázik
+    t.send("q")
+    assert "a.txt" in t.text()
+
+
+def test_diff_identical_and_editor_vs_disk(spawn, work):
+    (work / "a.txt").write_text("x\ny\n")
+    (work / "b.txt").write_text("x\ny\n")
+    t = spawn(".")
+    t.send(" ")
+    t.send(" ")
+    t.send("=")
+    assert "egyforma" in t.text()
+    t2 = spawn("a.txt")
+    t2.send("hello ")                             # a puffer eltér a lemeztől
+    t2.send("\x10")                               # Ctrl+P: parancssor
+    t2.send("diff\r")
+    txt = t2.text()
+    assert "(lemezen)" in txt and "(szerkesztett)" in txt
+    assert "- x" in txt and "+ hello x" in txt
+
+
+def _recovery_files(env):
+    d = Path(env["XDG_DATA_HOME"]) / "nanger" / "recovery"
+    return list(d.glob("*.json")) if d.is_dir() else []
+
+
+def test_autosave_and_restore_after_kill(spawn, work, env):
+    f = work / "a.txt"
+    f.write_text("alap\n")
+    t = spawn("a.txt", extra_env={"NANGER_AUTOSAVE": "0.5"})
+    t.send("elveszett ")
+    deadline = time.time() + 6
+    while time.time() < deadline and not _recovery_files(env):
+        time.sleep(0.2)
+    assert _recovery_files(env), "nincs helyreállítási fájl"
+    t.p.kill(signal.SIGKILL)                      # összeomlás: semmi sem menti el
+    assert f.read_text() == "alap\n"
+    t2 = spawn("a.txt")
+    assert "Mentetlen módosítások találhatók" in t2.text()
+    t2.send("i")
+    assert "visszaállítva" in t2.text()
+    assert "elveszett alap" in t2.text()
+    t2.send("\x13")                               # Ctrl+S
+    assert f.read_text() == "elveszett alap\n"
+    assert not _recovery_files(env)
+
+
+def test_hangup_saves_recovery_and_decline_discards(spawn, work, env):
+    f = work / "b.txt"
+    f.write_text("x\n")
+    t = spawn("b.txt")                            # alap 5 mp: csak a SIGHUP menthet
+    t.send("fontos ")
+    t.p.kill(signal.SIGHUP)
+    t.p.wait()
+    assert _recovery_files(env)
+    t2 = spawn("b.txt")
+    assert "Mentetlen módosítások találhatók" in t2.text()
+    t2.send("n")
+    assert not _recovery_files(env)
+    assert "fontos" not in t2.text()
+
+
+def test_normal_quit_without_saving_leaves_no_recovery(spawn, work, env):
+    (work / "c.txt").write_text("x\n")
+    t = spawn("c.txt", extra_env={"NANGER_AUTOSAVE": "0.5"})
+    t.send("valami ")
+    time.sleep(1.5)
+    assert _recovery_files(env)
+    t.send("\x11")                                # Ctrl+Q
+    t.send("y")                                   # mentés nélkül kilép
+    time.sleep(0.8)
+    assert not _recovery_files(env)

@@ -15,7 +15,7 @@ from .editor import Editor
 from .fsops import apply_renames, load_bookmarks, plan_renames, search_files
 from .i18n import tr
 from .keys import BACKSPACE, C, ENTER, ESC, ESCAPES, K_ALT_LEFT, K_ALT_RIGHT, K_MOUSE, seq_label
-from . import actions, media
+from . import actions, media, recovery
 from .media import archive_lines, can_view, file_kind, has_gui
 from .results import Results
 from . import term
@@ -45,6 +45,8 @@ class App:
         self.last_results = None
         self.return_view = None     # where the viewer / result list returns to
         self.quit_when_empty = False
+        self._autosaved = time.time()
+        self.crashed = False
         self.file_mode_only = False  # started on a file and never opened the file manager
         target = os.path.abspath(os.path.expanduser(target))
         if os.path.isdir(target):
@@ -138,6 +140,8 @@ class App:
                 self.error(tr("Cannot open: {error}").format(error=getattr(e, "strerror", None) or e))
                 return None
             self.buffers.append(ed)
+            self.view = ed
+            ed.offer_recovery()
         elif line:
             ed.goto(str(line))
         if search:
@@ -181,6 +185,7 @@ class App:
     def close_buffer(self, ed):
         idx = self.buffers.index(ed)
         self.buffers.remove(ed)
+        ed.drop_recovery()
         if self.last_buffer is ed:
             self.last_buffer = None
         if self.view is ed:
@@ -205,6 +210,25 @@ class App:
             cur = self.browser.current()
             self.browser.refresh(os.path.basename(cur) if cur else None)
 
+    def show_themes(self):
+        from .config import THEME_NAMES
+        items = [("%s %s" % ("●" if n == settings.theme else " ", n), n) for n in THEME_NAMES]
+        self.show_list(tr("Colour theme"), items, self.apply_theme)
+
+    def apply_theme(self, name, close=True):
+        from .config import save_setting
+        settings.theme = name
+        term.init_colors()
+        self.scr.bkgd(ord(" "), A["base"])
+        self.scr.clear()
+        if close:
+            self.close_results()
+        try:
+            save_setting("general", "theme", name)
+            self.info(tr("Theme: {name}").format(name=name))
+        except OSError as e:
+            self.error(tr("Failed: {error}").format(error=e.strerror))
+
     def show_keys(self, mode=None):
         from .keymenu import KeyMenu
         if mode is None:
@@ -212,6 +236,15 @@ class App:
         if not isinstance(self.view, (Results, KeyMenu)):
             self.return_view = self.view
         self.view = KeyMenu(self, mode)
+
+    def show_diff(self, ltitle, left, rtitle, right):
+        from .diffview import DiffView
+        if left == right:
+            self.info(tr("The two files are identical"))
+            return
+        if not isinstance(self.view, (Results, DiffView)):
+            self.return_view = self.view
+        self.view = DiffView(self, ltitle, left, rtitle, right)
 
     def close_results(self):
         self.view = self.return_view or self.browser
@@ -343,7 +376,9 @@ class App:
     # ---- keyboard
     def getkey(self, mouse=False):
         self._want_mouse = mouse
-        self.scr.timeout(150 if media.previews_pending() else -1)  # redraw when a listing is ready
+        # wake up for: a finished listing (redraw), or the next crash-recovery snapshot
+        self.scr.timeout(150 if media.previews_pending() else
+                         int(recovery.interval() * 1000) if self.unsaved() else -1)
         if self.queue:
             return self.queue.popleft()
         try:
@@ -493,10 +528,37 @@ class App:
         """Folder to leave the shell in (None when nanger was only used to edit a file)."""
         return None if self.file_mode_only else self.browser.cwd
 
+    def unsaved(self):
+        return [b for b in self.buffers if b.modified and b.path and not b.bulk]
+
+    def autosave(self, force=False):
+        now = time.time()
+        if not force and now - self._autosaved < recovery.interval():
+            return
+        self._autosaved = now
+        for b in self.unsaved():
+            b.autosave()
+
+    def _on_hangup(self, signum, frame):
+        """Terminal closed / killed: keep the work, then leave."""
+        self.crashed = True
+        self.autosave(force=True)
+        raise SystemExit(128 + signum)
+
     def run(self):
+        import signal
+        for name in ("SIGHUP", "SIGTERM"):
+            try:
+                signal.signal(getattr(signal, name), self._on_hangup)
+            except (AttributeError, ValueError, OSError):
+                pass
+        recovery.prune()
         try:
             self.loop()
         finally:
+            if not self.crashed:             # a normal exit means the user chose to discard
+                for b in self.buffers:
+                    b.drop_recovery()
             for b in self.buffers:
                 if b.bulk and b.path:
                     try:
@@ -506,6 +568,7 @@ class App:
 
     def loop(self):
         while self.running:
+            self.autosave()
             if not self.queue:
                 self.draw()
             k = self.getkey(mouse=True)

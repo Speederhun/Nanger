@@ -40,7 +40,7 @@ Priority: optional
 Architecture: $ARCH
 Depends: python3 (>= 3.8)
 Recommends: python3-pil, poppler-utils, xdg-utils, git
-Suggests: xclip | wl-clipboard
+Suggests: xclip | wl-clipboard, sshfs
 Installed-Size: $(du -ks "$ROOT/usr" | cut -f1)
 Maintainer: Speederhun <https://github.com/Speederhun/Nanger>
 Homepage: https://github.com/Speederhun/Nanger

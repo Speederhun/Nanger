@@ -4,9 +4,9 @@ import locale
 import os
 import sys
 
-from . import __version__, config, i18n
+from . import __version__, config, i18n, remote
 from .i18n import tr
-from .term import init_colors
+from .term import A, init_colors
 
 
 def usage():
@@ -18,6 +18,7 @@ def usage():
         "  nanger                  " + tr("file manager in the current folder"),
         "  nanger FOLDER           " + tr("file manager in the given folder"),
         "  nanger FILE             " + tr("open the file by its type (text: editor)"),
+        "  nanger user@host:/dir   " + tr("browse a remote folder over SSH (needs sshfs)"),
         "  nanger +N FILE          " + tr("open the text file at line N"),
         "",
         "  -h, --help              " + tr("this help"),
@@ -227,6 +228,13 @@ def main(argv=None):
     setup_locale()
     os.environ.setdefault("ESCDELAY", "25")
 
+    if paths and remote.looks_remote(target):
+        try:
+            target = remote.mount(target)
+        except remote.RemoteError as e:
+            print("nanger: %s" % e, file=sys.stderr)
+            return 1
+
     holder = []
 
     def run(scr):
@@ -235,6 +243,7 @@ def main(argv=None):
         curses.noecho()
         scr.keypad(True)
         init_colors()
+        scr.bkgd(ord(" "), A["base"])
         mouse_on()
         app = App(scr, target, line)
         holder.append(app)
@@ -244,6 +253,7 @@ def main(argv=None):
         curses.wrapper(run)
     finally:
         mouse_off()
+        remote.unmount_all()
     if choosedir and holder:
         d = holder[0].final_dir()
         if d:

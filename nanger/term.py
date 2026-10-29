@@ -31,6 +31,24 @@ _SPEC = {
 FIRST_FREE_PAIR = 30  # color pairs below this number belong to the UI
 
 
+def _theme(bg, fg, dim, dir, exe, link, arc, com, str_, num, kw, err, tag, mark_bg):
+    return dict(bg=bg, fg=fg, dim=dim, dir=dir, exe=exe, link=link, arc=arc, com=com,
+                str=str_, num=num, kw=kw, err=err, tag=tag, mark_bg=mark_bg,
+                gmod=tag, gadd=exe, gnew=arc, gdel=err, gbad=err)
+
+
+# 256-colour palettes (None = the terminal's own colours)
+THEMES = {
+    "default": None,
+    "dark": _theme(233, 252, 244, 75, 114, 80, 176, 108, 180, 116, 176, 203, 221, 221),
+    "light": _theme(255, 236, 245, 25, 28, 30, 90, 28, 130, 24, 90, 160, 130, 222),
+    "solarized-dark": _theme(234, 244, 240, 33, 64, 37, 125, 64, 136, 37, 61, 160, 136, 136),
+    "solarized-light": _theme(230, 66, 109, 33, 64, 37, 125, 64, 136, 37, 61, 160, 136, 186),
+    "gruvbox": _theme(235, 223, 245, 109, 142, 108, 175, 245, 214, 175, 167, 167, 214, 214),
+    "nord": _theme(236, 253, 244, 110, 108, 109, 139, 244, 222, 139, 110, 167, 222, 222),
+}
+
+
 def init_colors():
     for name in _SPEC:
         A[name] = curses.A_NORMAL
@@ -41,21 +59,31 @@ def init_colors():
     A["key"] = curses.A_REVERSE
     A["match"] = curses.A_UNDERLINE
     A["ln"] = curses.A_DIM
+    A["base"] = curses.A_NORMAL
     if not curses.has_colors():
         return
     try:
         curses.start_color()
     except curses.error:
         return
+    theme = THEMES.get(settings.theme) if curses.COLORS >= 256 else None
     bg = -1
     try:
         curses.use_default_colors()
     except curses.error:
         bg = curses.COLOR_BLACK
+    base_fg = -1
+    if theme:
+        bg, base_fg = theme["bg"], theme["fg"]
     pair = 1
     for name, (ckey, default, extra) in _SPEC.items():
-        color = settings.colors.get(ckey, default) if ckey else default
-        fg = _CURSES_COLORS[color]
+        user = settings.colors.get(ckey) if ckey else None
+        if user:
+            fg = _CURSES_COLORS[user]
+        elif theme:
+            fg = theme[name]
+        else:
+            fg = _CURSES_COLORS[default]
         if fg == -1 and bg != -1:
             fg = curses.COLOR_WHITE
         try:
@@ -65,7 +93,17 @@ def init_colors():
             pass
         pair += 1
     try:
-        curses.init_pair(pair, curses.COLOR_BLACK, curses.COLOR_YELLOW)
+        if theme:
+            curses.init_pair(pair, base_fg, bg)
+            A["base"] = curses.color_pair(pair)
+            pair += 1
+            curses.init_pair(pair, theme["dim"], bg)
+            A["ln"] = curses.color_pair(pair)
+            pair += 1
+            A["title"] = A["key"] = A["base"] | curses.A_REVERSE
+            curses.init_pair(pair, 16, theme["mark_bg"])
+        else:
+            curses.init_pair(pair, curses.COLOR_BLACK, curses.COLOR_YELLOW)
         A["match"] = curses.color_pair(pair)
     except curses.error:
         pass

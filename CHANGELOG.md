@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.10.0
+
+- **Colour themes**: `T` (or `:theme NAME`) switches between dark, light, solarized-dark,
+  solarized-light, gruvbox and nord; the choice is saved (`theme =` in the config). Needs a
+  256-colour terminal; your own `[colors]` still win.
+- **Permissions and owner** on the marked files: `P` (chmod: `644`, `u+x`, `-R 755`) and `O`
+  (chown: `user`, `user:group`, `:group`); offers `sudo` when the change is not permitted.
+- **Side-by-side compare**: `=` on two marked files (or one marked + the current one), and
+  `:diff` / `:diff FILE` in the editor (buffer against the file on disk). `n`/`N` jump between changes.
+- **Remote folders over SSH**: `M`, or `nanger user@host:/path` / `sftp://user@host/path`, mount
+  the folder with `sshfs` (SSH keys only); it is unmounted on exit or with `M` + empty line.
+- **Autosave and crash recovery**: modified files are snapshotted every 5 s
+  (`~/.local/share/nanger/recovery`, `NANGER_AUTOSAVE=seconds`); closing the terminal or `kill`
+  saves at once; reopening the file offers to restore. A normal quit/discard removes the snapshot.
+
 ## 1.9.1
 
 - Archive previews are read in the background (no lag while moving over big archives or

@@ -5,7 +5,7 @@ import re
 import subprocess
 import time
 
-from . import gitinfo
+from . import gitinfo, recovery
 from .config import settings
 from .helptext import editor_help
 from .i18n import tr
@@ -50,6 +50,7 @@ class Editor:
         self.bulk = None            # set for the "bulk rename" scratch buffer
         self.warned_sig = None
         self._checked = 0.0
+        self._auto = None
         self.git_base = None
         self._marks, self._marks_src = {}, None
         self.use_tabs = any(l.startswith("\t") for l in self.lines[:1000])
@@ -478,6 +479,61 @@ class Editor:
             self.insert_text(text)
 
     # ---- file
+    def diff(self, other=""):
+        """:diff = buffer against the saved file; :diff FILE = buffer against another file."""
+        app = self.app
+        path = os.path.expanduser(other) if other else self.path
+        if not path or not os.path.isfile(path):
+            app.error(tr("No file to compare with") if not other
+                      else tr("Not a file: {path}").format(path=path))
+            return
+        try:
+            disk = load_text(path)[0]
+        except (OSError, ValueError) as e:
+            app.error(tr("Cannot open: {error}").format(error=getattr(e, "strerror", None) or e))
+            return
+        name = os.path.basename(self.path) if self.path else tr("(no name)")
+        app.show_diff(os.path.basename(path) + (" " + tr("(on disk)") if not other else ""),
+                      disk, name + " " + tr("(edited)"), list(self.lines))
+
+    def autosave(self):
+        """Write the unsaved buffer to the recovery folder (only when it changed)."""
+        if not self.modified or not self.path or self.bulk:
+            return
+        text = "\n".join(self.lines)
+        state = (len(text), hash(text))
+        if state == self._auto:
+            return
+        if recovery.write(self.path, self.lines, self.enc, self.nl):
+            self._auto = state
+
+    def drop_recovery(self):
+        self._auto = None
+        if self.path:
+            recovery.discard(self.path)
+
+    def offer_recovery(self):
+        """After opening: offer to restore unsaved changes left by a crash."""
+        if not self.path or self.bulk:
+            return
+        rec = recovery.load(self.path)
+        if rec is None:
+            return
+        if rec["text"] == "\n".join(self.lines):
+            recovery.discard(self.path)
+            return
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(rec.get("saved_at", 0)))
+        a = self.app.ask(tr("Unsaved changes from {when} were found. Restore them? (y/n) ")
+                         .format(when=when))
+        if a in ("y", "i"):
+            self.push()
+            self.lines = rec["text"].split("\n") or [""]
+            self.modified = True
+            self.clamp()
+            self.app.info(tr("Unsaved changes restored — Ctrl+S saves them"))
+        else:
+            recovery.discard(self.path)
+
     def check_disk(self):
         """Notice when another program changed the file while it is open here."""
         if not self.path or self.sig is None:
@@ -505,6 +561,7 @@ class Editor:
         self.sig = disk_sig(self.path)
         self.warned_sig = None
         self.modified = False
+        self.drop_recovery()
         self.undo.clear()
         self.redo.clear()
         self.anchor = None
@@ -538,6 +595,7 @@ class Editor:
         self.warned_sig = None
         self.modified = False
         self.typing = False
+        self.drop_recovery()
         gitinfo.invalidate()
         self.refresh_git()
         self.app.info(tr("Saved: {name} ({n} lines)").format(name=os.path.basename(path),
@@ -678,6 +736,15 @@ class Editor:
         elif cmd.startswith("@"):
             n = cmd[1:].strip()
             app.play_macro(int(n) if n.isdigit() else 1)
+        elif cmd == "theme" or cmd.startswith("theme "):
+            from .config import THEME_NAMES
+            name = cmd[5:].strip()
+            if name in THEME_NAMES:
+                app.apply_theme(name, close=False)
+            else:
+                app.show_themes()
+        elif cmd == "diff" or cmd.startswith("diff "):
+            self.diff(cmd[4:].strip())
         elif cmd in ("keys", "map"):
             app.show_keys("editor")
         elif cmd in ("ls", "buffers", "files"):
