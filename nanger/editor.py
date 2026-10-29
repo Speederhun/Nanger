@@ -19,7 +19,7 @@ from .util import disk_sig, load_text, save_text, split_delim
 def help_bar1():
     return [("^S", tr("Save")), ("^Q", tr("Close")), ("^F", tr("Find")), ("^N", tr("Next")),
             ("^R", tr("Replace")), ("^G", tr("Go to line")), ("^P", tr("Command")),
-            ("F1", tr("Help"))]
+            ("F1", tr("Help")), ("F9", tr("Customize"))]
 
 
 def help_bar2():
@@ -134,6 +134,33 @@ class Editor:
         self.clamp()
 
     # ---- selection
+    def mouse(self, x, y, kind):
+        g = getattr(self, "geom", None)
+        if not g or kind == "right":
+            return
+        gutter, th = g
+        if y < 1 or y > th:
+            return
+        ny = min(self.top + y - 1, len(self.lines) - 1)
+        nx = idx_from_col(self.lines[ny], max(0, x - gutter) + self.left)
+        if kind == "drag":
+            if self.anchor is None:
+                self.anchor = (self.cy, self.cx)
+            self.cy, self.cx = ny, nx
+        elif kind == "double":
+            line = self.lines[ny]
+            a = b = min(nx, len(line))
+            while a > 0 and (line[a - 1].isalnum() or line[a - 1] == "_"):
+                a -= 1
+            while b < len(line) and (line[b].isalnum() or line[b] == "_"):
+                b += 1
+            self.cy, self.cx = ny, b
+            self.anchor = (ny, a) if a != b else None
+        else:
+            self.cy, self.cx = ny, nx
+            self.anchor, self.sticky = None, False
+        self.want = disp_col(self.lines[self.cy], self.cx)
+
     def sel_range(self):
         if self.anchor is None:
             return None
@@ -832,6 +859,7 @@ class Editor:
         sign = 1 if self.git_base is not None else 0
         gutter = sign + (len(str(len(L))) + 1 if self.numbers else 0)
         tw = max(1, w - gutter)
+        self.geom = (gutter, th)
         tab = settings.tab_width
         if self.cy < self.top:
             self.top = self.cy

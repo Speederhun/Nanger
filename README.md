@@ -13,6 +13,7 @@ English and Hungarian interface · Hungarian docs: [README.hu.md](README.hu.md)
 - **Git status** in the list and a changed-lines gutter in the editor
 - **Several open files**, file-changed-on-disk detection
 - **Bookmarks**, **bulk rename**, **search in files** (`f`, `:grep`)
+- **Mouse support** (click, double-click, wheel, clickable help bar, drag to select)
 - Safe delete to the freedesktop **trash**
 - Opens documents/media with the desktop's default program (`xdg-open`)
 - Config file with colours, plus a **menu to change any keyboard shortcut** (`K` / `F9`)
@@ -29,7 +30,17 @@ sudo apt update && sudo apt install nanger
 ```
 
 Or download the `.deb` from the [Releases](https://github.com/Speederhun/Nanger/releases)
-page and run `sudo apt install ./nanger_*_all.deb`.
+page and run `sudo apt install ./nanger_*.deb`. Pick the file for your device:
+
+| Device | File |
+|---|---|
+| PC (Intel/AMD 64-bit) | `nanger_<version>_amd64.deb` |
+| ARM 64-bit (Raspberry Pi 3/4/5, ARM servers) | `nanger_<version>_arm64.deb` |
+| ARM 32-bit (older Raspberry Pi OS) | `nanger_<version>_armhf.deb` |
+| any CPU | `nanger_<version>_all.deb` |
+
+(nanger is pure Python, so all of them contain the same program. Arch Linux ARM can use the
+same `PKGBUILD`; it is architecture-independent.)
 
 ### Arch Linux
 

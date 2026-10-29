@@ -69,6 +69,15 @@ class KeyMenu:
             msg += " — " + tr("swapped with “{name}”").format(name=actions.label(mode, other))
         self.app.info(msg)
 
+    def mouse(self, x, y, kind):
+        i = self.top + y - 1
+        if kind == "right":
+            self.app.close_results()
+        elif kind in ("click", "double", "drag") and 1 <= y and 0 <= i < len(self.rows):
+            self.sel = i
+            if kind == "double":
+                self.handle(10)
+
     def draw(self, scr, h, w):
         th = h - 4
         n = len(self.rows)

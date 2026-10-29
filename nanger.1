@@ -1,4 +1,4 @@
-.TH NANGER 1 "2026" "nanger 1.4.0" "User Commands"
+.TH NANGER 1 "2026" "nanger 1.5.0" "User Commands"
 .SH NAME
 nanger \- file manager and text editor in one (ranger + nano + vim)
 .SH SYNOPSIS
@@ -170,6 +170,8 @@ search in files / show the last results
 .TP
 .BI @ N
 play the macro N times
+.SH MOUSE
+Click selects, double-click opens, the wheel scrolls, right-click goes back, the help-bar entries are clickable; in the editor click/drag/double-click place the cursor and select text. Disable with "mouse = no" in the configuration or NANGER_MOUSE=0. Hold Shift to select text with the terminal.
 .SH CONFIGURATION
 .B nanger \-\-init\-config
 creates ~/.config/nanger/config.ini (colours, tab width, line numbers, sorting, key

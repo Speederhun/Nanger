@@ -122,3 +122,22 @@ def parse_key(name):  # noqa: F811 - extends the table above with "none"
     if name.strip().lower() == "none":
         return NOOP
     return _old_parse(name)
+
+
+K_MOUSE = 20100
+
+
+def label_key(label):
+    """Key code for a help-bar label ('^S', 'F4', 'Enter', 'n', ...) so it can be clicked."""
+    if len(label) == 2 and label[0] == "^" and label[1].isalpha():
+        return C(label[1].lower())
+    m = re.fullmatch(r"F(\d{1,2})(/.*)?", label)
+    if m and 1 <= int(m.group(1)) <= 12:
+        return curses.KEY_F0 + int(m.group(1))
+    special = {"Enter": 10, "←": curses.KEY_LEFT, "Del": curses.KEY_DC, "Tab": 9,
+               "Space": " ", "Szóköz": " "}
+    if label in special:
+        return special[label]
+    if len(label) == 1:
+        return label
+    return None

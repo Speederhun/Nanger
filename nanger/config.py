@@ -24,6 +24,8 @@ line_numbers = yes
 show_hidden = no
 # default sorting: name, size, date or ext
 sort = name
+# mouse support (click, double-click, wheel); hold Shift to select text with the terminal
+mouse = yes
 # image previews: auto, kitty, iterm, sixel (real pixels) or blocks (coloured text cells)
 graphics = auto
 # show git status in the file manager and changed lines in the editor
@@ -61,6 +63,7 @@ class Settings:
         self.sort = "name"
         self.git = True
         self.graphics = "auto"
+        self.mouse = True
         self.colors = {}
         self.keymaps = {"browser": {}, "editor": {}}
         self.warnings = []
@@ -128,6 +131,8 @@ def load(path=None):
                 settings.line_numbers = _bool(raw)
             elif key == "show_hidden":
                 settings.show_hidden = _bool(raw)
+            elif key == "mouse":
+                settings.mouse = _bool(raw)
             elif key == "graphics":
                 if raw.strip().lower() not in ("auto", "kitty", "iterm", "sixel", "blocks"):
                     raise ValueError(raw)

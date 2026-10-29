@@ -75,6 +75,13 @@ class Viewer:
         elif k == "o":
             app.open_external(self.path)
 
+    def mouse(self, x, y, kind):
+        w = self.app.scr.getmaxyx()[1]
+        if kind == "right":
+            self.app.close_viewer()
+        elif kind in ("click", "double") and y >= 1:
+            self.step(1 if x >= w // 2 else -1)
+
     def draw(self, scr, h, w):
         th = h - 4
         name = os.path.basename(self.path)

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.5.0
+
+- **Mouse support:** click to select, double-click to open, wheel to scroll, right-click for
+  back, click the help-bar entries (`^S Save`, `F9 Customize`, ...), click/drag/double-click
+  in the editor to place the cursor, select text or select a word. Click a folder in the
+  left column to jump there. Turn off with `mouse = no` in the config (or `NANGER_MOUSE=0`);
+  hold Shift to select text with the terminal itself.
+- `F9 Customize` is shown in the help bar (file manager and editor).
+- **ARM packages:** every release now has separate `amd64`, `arm64` (Raspberry Pi 3/4/5, ARM
+  servers), `armhf` (32-bit Raspberry Pi OS) and universal `all` `.deb` files plus `SHA256SUMS`.
+  The apt repository serves the universal package, which works on every architecture.
+
 ## 1.4.0
 
 - **Keyboard shortcut menu:** `K` (file manager), `F9` or `:keys` (editor) lists the actions

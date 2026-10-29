@@ -34,9 +34,12 @@ jobs:
         if: steps.v.outputs.new == 'yes'
         run: |
           python3 -m compileall -q nanger
-          sh packaging/debian/build-deb.sh "${{ steps.v.outputs.version }}"
+          for arch in all amd64 arm64 armhf; do
+            sh packaging/debian/build-deb.sh "${{ steps.v.outputs.version }}" "$arch"
+          done
           git archive --format=tar.gz --prefix="nanger-${{ steps.v.outputs.version }}/" \
             -o "dist/nanger-${{ steps.v.outputs.version }}.tar.gz" HEAD
+          (cd dist && sha256sum * > SHA256SUMS)
 
       - name: GitHub release
         if: steps.v.outputs.new == 'yes'
@@ -46,7 +49,8 @@ jobs:
           gh release create "v${{ steps.v.outputs.version }}" dist/* \
             --target "$GITHUB_SHA" \
             --title "nanger ${{ steps.v.outputs.version }}" \
-            --notes-file <(sed -n '/^## /{p;:a;n;/^## /q;p;ba}' CHANGELOG.md | sed '1d')
+            --notes-file <( { sed -n '/^## /{p;:a;n;/^## /q;p;ba}' CHANGELOG.md | sed '1d'
+              printf '\n### Downloads\n\n| Device | File |\n|---|---|\n| PC (Intel/AMD, 64-bit) | `nanger_%s_amd64.deb` |\n| ARM 64-bit (Raspberry Pi 3/4/5, Apple-silicon VMs, ARM servers) | `nanger_%s_arm64.deb` |\n| ARM 32-bit (older Raspberry Pi OS) | `nanger_%s_armhf.deb` |\n| Any CPU | `nanger_%s_all.deb` |\n\nInstall: `sudo apt install ./nanger_*.deb`\n' "${{ steps.v.outputs.version }}" "${{ steps.v.outputs.version }}" "${{ steps.v.outputs.version }}" "${{ steps.v.outputs.version }}"; } )
 
       - name: Check optional secrets
         id: sec
@@ -74,7 +78,7 @@ jobs:
             git worktree add /tmp/pages FETCH_HEAD
             cp /tmp/pages/pool/main/*.deb /tmp/debs/ 2>/dev/null || true
           fi
-          cp dist/*.deb /tmp/debs/
+          cp dist/*_all.deb /tmp/debs/   # the repository serves the universal package
           sh packaging/apt/build-repo.sh /tmp/debs /tmp/site "$KEY"
           cp packaging/apt/index.html /tmp/site/index.html
           cd /tmp/site

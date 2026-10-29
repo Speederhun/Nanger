@@ -103,11 +103,18 @@ def idx_from_col(line, target):
     return len(line)
 
 
+HELP_REGIONS = []   # (row, x0, x1, key code) of the clickable help-bar entries
+
+
 def draw_help(scr, row, items, w):
+    from .keys import label_key
     x = 0
     for key, label in items:
         if x >= w - 1:
             break
+        code = label_key(key)
+        if code is not None:
+            HELP_REGIONS.append((row, x, min(w, x + len(key) + len(label) + 3), code))
         put(scr, row, x, key, A["key"])
         x += len(key)
         put(scr, row, x, " " + label + "  ")

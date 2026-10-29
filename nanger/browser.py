@@ -28,7 +28,7 @@ def sort_label(mode):
 def help_bar1():
     return [("Enter", tr("Open")), ("←", tr("Back")), ("n", tr("New file")),
             ("N", tr("New folder")), ("r", tr("Rename")), ("D", tr("Delete")),
-            ("/", tr("Find")), ("q", tr("Quit"))]
+            ("/", tr("Find")), ("q", tr("Quit")), ("F9", tr("Customize"))]
 
 
 def help_bar2():
@@ -286,6 +286,32 @@ class Browser:
         elif k in ("K", curses.KEY_F9):
             app.show_keys("browser")
 
+    def mouse(self, x, y, kind):
+        if not getattr(self, "geom", None):
+            return
+        w1, w2, th = self.geom
+        if kind == "right":
+            self.handle(curses.KEY_LEFT)
+            return
+        if not 1 <= y <= th or kind == "drag":
+            return
+        if x < w1:
+            pg = getattr(self, "pgeom", None)
+            if pg:
+                parent, pents, ptop = pg
+                i = ptop + y - 1
+                if 0 <= i < len(pents) and os.path.isdir(os.path.join(parent, pents[i])):
+                    self.cd(os.path.join(parent, pents[i]))
+        elif x > w1 + w2:
+            if kind == "double":
+                self.handle(10)
+        elif x > w1:
+            i = self.top + y - 1
+            if 0 <= i < len(self.entries):
+                self.sel = i
+                if kind == "double":
+                    self.handle(10)
+
     def rename(self, cur):
         if not cur:
             return
@@ -535,6 +561,10 @@ class Browser:
             pidx = pents.index(base) if base in pents else 0
             ptop = max(0, min(pidx - th // 2, len(pents) - th))
             self.draw_list(scr, 0, w1, parent, pents, pidx, ptop, th, False)
+            self.pgeom = (parent, pents, ptop)
+        else:
+            self.pgeom = None
+        self.geom = (w1, w2, th)
         for r in range(th):
             put(scr, 1 + r, w1, "│", A["ln"])
             put(scr, 1 + r, w1 + 1 + w2, "│", A["ln"])

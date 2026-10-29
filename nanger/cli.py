@@ -42,6 +42,19 @@ def setup_locale():
                 continue
 
 
+def enable_mouse():
+    if not config.settings.mouse or os.environ.get("NANGER_MOUSE") == "0":
+        return
+    try:
+        curses.mouseinterval(0)
+        want = (curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED | curses.BUTTON3_PRESSED
+                | getattr(curses, "BUTTON4_PRESSED", 0) | getattr(curses, "BUTTON5_PRESSED", 0)
+                | curses.REPORT_MOUSE_POSITION)
+        curses.mousemask(want)
+    except (curses.error, AttributeError):
+        pass
+
+
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     config.load()
@@ -84,6 +97,7 @@ def main(argv=None):
         curses.noecho()
         scr.keypad(True)
         init_colors()
+        enable_mouse()
         App(scr, target, line).run()
 
     curses.wrapper(run)

@@ -771,3 +771,50 @@ def test_keys_module_swap_and_reset():
     km, _ = actions.reset("browser", km, 2)
     km, _ = actions.reset("browser", km, 6)
     assert km == {}
+
+
+def click(x, y, press="M"):
+    return f"\x1b[<0;{x};{y}{press}"
+
+
+def mouse_click(t, x, y):
+    t.send(click(x, y, "M"), 0.2)
+    t.send(click(x, y, "m"), 0.3)
+
+
+def test_mouse_select_open_wheel_and_help_bar(spawn, work):
+    for n in ("a.txt", "b.txt", "c.txt"):
+        (work / n).write_text(n + " tartalom\n")
+    t = spawn(".")
+    mouse_click(t, 30, 3)                         # a 2. sor (b.txt) — 1. sor a címsor
+    assert "2/3" in t.text()
+    t.send("\x1b[<65;30;3M", 0.3)                 # görgő le
+    assert "3/3" in t.text() or "2/3" not in t.text()
+    for part in (click(30, 2, "M"), click(30, 2, "m"), click(30, 2, "M"), click(30, 2, "m")):
+        t.send(part, 0.06)                        # dupla kattintás: gyors egymásutánban
+    t.pump(0.6)
+    assert "a.txt tartalom" in t.text() and "^S" in t.text()
+    mouse_click(t, 8, 1 + 1)                      # szerkesztőben: kurzor a szövegre
+    assert "1:" in t.row(0)
+    # a súgósorban a "^Q Bezár" gombra kattintva bezár
+    y = ROWS - 2
+    x = t.row(y).index("^Q") + 1
+    mouse_click(t, x, y + 1)
+    assert "Enter Megnyit" in t.text()
+
+
+def test_mouse_can_be_disabled(work, env):
+    (work / "a.txt").write_text("x")
+    log = work.parent / "raw2.bin"
+    for flag, expect in (("0", False), ("1", True)):
+        with open(log, "wb") as f:
+            p = pexpect.spawn(NANGER, ["."], cwd=str(work), dimensions=(ROWS, COLS),
+                              env=dict(env, NANGER_MOUSE=flag))
+            p.logfile_read = f
+            time.sleep(1.0)
+            try:
+                p.read_nonblocking(1 << 20, timeout=0.5)
+            except Exception:  # noqa: BLE001
+                pass
+            p.terminate(force=True)
+        assert (b"1000h" in log.read_bytes()) == expect

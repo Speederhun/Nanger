@@ -1,9 +1,12 @@
 #!/bin/sh
-# Build the .deb:  packaging/debian/build-deb.sh [version]
-# Result: dist/nanger_<version>_all.deb
+# Build the .deb:  packaging/debian/build-deb.sh [version] [arch]
+# arch: all (default, any CPU), amd64, arm64 or armhf (pure Python: identical contents)
+# Result: dist/nanger_<version>_<arch>.deb
 set -eu
 cd "$(dirname "$0")/../.."
 VERSION="${1:-$(sed -n 's/^__version__ = "\(.*\)"/\1/p' nanger/__init__.py)}"
+ARCH="${2:-all}"
+case "$ARCH" in all|amd64|arm64|armhf|i386|riscv64) ;; *) echo "unknown arch $ARCH" >&2; exit 1;; esac
 ROOT="$(mktemp -d)"
 trap 'rm -rf "$ROOT"' EXIT
 
@@ -34,7 +37,7 @@ Package: nanger
 Version: $VERSION
 Section: editors
 Priority: optional
-Architecture: all
+Architecture: $ARCH
 Depends: python3 (>= 3.8)
 Recommends: python3-pil, poppler-utils, xdg-utils, git
 Suggests: xclip | wl-clipboard
@@ -49,4 +52,4 @@ Description: file manager and text editor in one (ranger + nano + vim)
  files, bookmarks, bulk rename and grep. English and Hungarian interface.
 EOF
 mkdir -p dist
-dpkg-deb --root-owner-group --build "$ROOT" "dist/nanger_${VERSION}_all.deb"
+dpkg-deb --root-owner-group --build "$ROOT" "dist/nanger_${VERSION}_${ARCH}.deb"

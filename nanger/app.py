@@ -6,6 +6,7 @@ import re
 import select
 import subprocess
 import sys
+import time
 from collections import deque
 
 from .browser import Browser
@@ -13,10 +14,11 @@ from .config import settings
 from .editor import Editor
 from .fsops import apply_renames, load_bookmarks, plan_renames, search_files
 from .i18n import tr
-from .keys import BACKSPACE, C, ENTER, ESC, ESCAPES, K_ALT_LEFT, K_ALT_RIGHT
+from .keys import BACKSPACE, C, ENTER, ESC, ESCAPES, K_ALT_LEFT, K_ALT_RIGHT, K_MOUSE
 from . import media
 from .media import archive_lines, can_view, file_kind, has_gui
 from .results import Results
+from . import term
 from .term import A, put
 from .util import load_text, set_system_clipboard
 from .viewer import Viewer
@@ -30,6 +32,9 @@ class App:
         self.clip = ("", False)
         self.running = True
         self.queue = deque()
+        self.btn_down = False
+        self.last_click = None
+        self.mouse_event = (0, 0, "click")
         self.recording = None
         self.macro = []
         self.cmd_history = []
@@ -331,7 +336,7 @@ class App:
         self.browser.refresh()
 
     # ---- keyboard
-    def getkey(self):
+    def getkey(self, mouse=False):
         if self.queue:
             return self.queue.popleft()
         try:
@@ -340,6 +345,8 @@ class App:
             return None
         except KeyboardInterrupt:
             return C("c")
+        if k == curses.KEY_MOUSE:
+            return self.mouse_key(mouse)
         if isinstance(k, str) and len(k) == 1 and (ord(k) < 32 or ord(k) == 127):
             k = ord(k)
         if k == ESC:
@@ -350,6 +357,54 @@ class App:
                                                     curses.KEY_RESIZE):
             self.recording.append(k)
         return k
+
+    def mouse_key(self, wanted):
+        """Translate a curses mouse event. Wheel -> three arrow keys (works everywhere);
+        clicks/drags -> K_MOUSE (only when the caller asked for them)."""
+        try:
+            _id, x, y, _z, b = curses.getmouse()
+        except curses.error:
+            return None
+        up = getattr(curses, "BUTTON4_PRESSED", 0)
+        down = getattr(curses, "BUTTON5_PRESSED", 0)
+        if b & up:
+            self.queue.extend([curses.KEY_UP] * 3)
+            return self.queue.popleft()
+        if down and b & down:
+            self.queue.extend([curses.KEY_DOWN] * 3)
+            return self.queue.popleft()
+        left = curses.BUTTON1_PRESSED | curses.BUTTON1_CLICKED | curses.BUTTON1_DOUBLE_CLICKED
+        if b & curses.BUTTON1_RELEASED:
+            self.btn_down = False
+        if not wanted:
+            return None
+        if b & left:
+            now = time.time()
+            last = self.last_click
+            dbl = bool(last and last[:2] == (x, y) and now - last[2] < 0.4)
+            self.last_click = None if dbl else (x, y, now)
+            self.btn_down = True
+            self.mouse_event = (x, y, "double" if dbl else "click")
+            return K_MOUSE
+        if b & curses.BUTTON3_PRESSED:
+            self.mouse_event = (x, y, "right")
+            return K_MOUSE
+        if b & curses.REPORT_MOUSE_POSITION and self.btn_down:
+            self.mouse_event = (x, y, "drag")
+            return K_MOUSE
+        return None
+
+    def on_mouse(self):
+        x, y, kind = self.mouse_event
+        if kind in ("click", "double"):
+            for row, x0, x1, code in term.HELP_REGIONS:
+                if row == y and x0 <= x < x1:
+                    self.btn_down = False
+                    self.view.handle(code)
+                    return
+        fn = getattr(self.view, "mouse", None)
+        if fn:
+            fn(x, y, kind)
 
     @staticmethod
     def named_key(k):
@@ -404,10 +459,13 @@ class App:
         while self.running:
             if not self.queue:
                 self.draw()
-            k = self.getkey()
+            k = self.getkey(mouse=True)
             if k is None or k == curses.KEY_RESIZE:
                 continue
             self.msg = ""
+            if k == K_MOUSE:
+                self.on_mouse()
+                continue
             if k == curses.KEY_F5:
                 if self.recording is None:
                     self.recording = []
@@ -430,6 +488,7 @@ class App:
         scr.erase()
         media.OVERLAY.clear()
         media.GRAPHICS.clear()
+        term.HELP_REGIONS.clear()
         h, w = scr.getmaxyx()
         if h < 8 or w < 30:
             put(scr, 0, 0, tr("Window too small"))

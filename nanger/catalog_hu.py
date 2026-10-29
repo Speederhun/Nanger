@@ -240,4 +240,5 @@ HU = {
     "Hidden files": "Rejtett fájlok",
     "Shell": "Shell",
     "Line numbers": "Sorszámok",
+    "Customize": "Testreszab",
 }
