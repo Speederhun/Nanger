@@ -456,6 +456,19 @@ def cached_render(kind, path, page, cols, rows, lazy=False):
 
 # ------------------------------------------------------------------ archives
 
+_7Z_ROW = re.compile(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d (\S{5})\s+(\d+)\s+(\d*)\s+(.*)")
+
+
+def _nice_row(line):
+    """`7z l -ba` row -> the same '   size  name' shape as zip listings."""
+    m = _7Z_ROW.match(line)
+    if not m:
+        return clean(line)
+    attr, size, _packed, name = m.groups()
+    shown = "" if attr.startswith("D") else human(int(size))
+    return "%7s  %s" % (shown, clean(name))
+
+
 def _external_archive_lines(p, limit):
     """7z, rar, iso, deb, ... : list with whichever extractor tool is installed."""
     for cmd in (["bsdtar", "-tf", p], ["7z", "l", "-ba", p], ["7zz", "l", "-ba", p],
@@ -463,12 +476,12 @@ def _external_archive_lines(p, limit):
         if not shutil.which(cmd[0]):
             continue
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=10,
-                               errors="replace")
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=8,
+                               errors="replace", stdin=subprocess.DEVNULL)
         except (OSError, subprocess.SubprocessError):
             continue
         if r.returncode == 0 and r.stdout.strip():
-            rows = [clean(l.rstrip()) for l in r.stdout.splitlines() if l.strip()]
+            rows = [_nice_row(l.rstrip()) for l in r.stdout.splitlines() if l.strip()]
             return [(l, 0) for l in rows[:limit]], len(rows) > limit
     ext = os.path.splitext(p)[1].lower()
     return [(tr("[{ext} file, {size}]").format(ext=ext, size=human(os.path.getsize(p))),
@@ -598,3 +611,55 @@ def _xlsx_rows(xml, shared):
             cells.append(val)
         out.append(" │ ".join(cells))
     return out
+
+
+# ------------------------------------------------------------------ background listings
+# Listing a big archive can take a while; do it in a thread so moving over files stays fast.
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
+
+_ARC_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="nanger-arc")
+_ARC_DONE = OrderedDict()
+_ARC_PENDING = {}
+_ARC_WANTED = set()      # listings the last frame asked for
+
+
+def archive_preview(p, mtime, limit):
+    """(lines, more) of an archive, or None while it is still being read."""
+    key = (p, mtime, limit)
+    _ARC_WANTED.add(key)
+    hit = _ARC_DONE.get(key)
+    if hit is not None:
+        return hit
+    fut = _ARC_PENDING.get(key)
+    if fut is None:
+        _ARC_PENDING[key] = _ARC_POOL.submit(archive_lines, p, limit)
+        return None
+    if not fut.done():
+        return None
+    del _ARC_PENDING[key]
+    try:
+        res = fut.result()
+    except Exception as e:  # noqa: BLE001
+        res = ([(tr("[cannot read the archive: {error}]").format(error=e), A["err"])], False)
+    _ARC_DONE[key] = res
+    while len(_ARC_DONE) > 32:
+        _ARC_DONE.popitem(last=False)
+    return res
+
+
+def begin_frame():
+    _ARC_WANTED.clear()
+
+
+def previews_pending():
+    """True while the screen still shows (or is about to show) an unfinished listing."""
+    for key, fut in list(_ARC_PENDING.items()):
+        if key in _ARC_WANTED:
+            return True            # unfinished, or finished but not drawn yet
+        if fut.done():             # nobody wants it any more: keep the result, stop polling
+            _ARC_PENDING.pop(key)
+            try:
+                _ARC_DONE[key] = fut.result()
+            except Exception:  # noqa: BLE001
+                pass
+    return False

@@ -547,6 +547,7 @@ def test_archive_preview_and_listing_without_gui(spawn, work):
         z.writestr("egy.txt", "a")
         z.writestr("mappa/ketto.txt", "b")
     t = spawn(".")
+    t.pump(1.0)                                   # a lista a háttérben készül
     assert "egy.txt" in t.text() and "mappa/ketto.txt" in t.text()
     t.send("\r")  # grafikus felület nélkül: tartalomjegyzék lapozóban
     assert "x.zip" in t.text() and "mappa/ketto.txt" in t.text()
@@ -1061,3 +1062,19 @@ def test_install_shell_is_idempotent(env, tmp_path):
         subprocess.run([NANGER, "--install-shell"], env=e, capture_output=True, text=True)
     rc = (tmp_path / "h2" / ".bashrc").read_text()
     assert rc.count("nanger --shell-init") == 1
+
+
+@pytest.mark.skipif(not shutil.which("7z") and not shutil.which("7zz") and not shutil.which("7za"),
+                    reason="nincs 7z")
+def test_7z_preview_is_async_and_readable(spawn, work):
+    import subprocess
+    (work / "in").mkdir()
+    (work / "in" / "szoveg a.txt").write_text("x" * 2048)
+    exe = shutil.which("7z") or shutil.which("7zz") or shutil.which("7za")
+    subprocess.run([exe, "a", "-bd", str(work / "k.7z"), "in"], cwd=work, capture_output=True,
+                   check=True)
+    subprocess.run(["rm", "-rf", str(work / "in")], check=True)
+    t = spawn(".")
+    t.pump(1.0)
+    assert "szoveg a.txt" in t.text() and "2.0K" in t.text()
+    assert "....A" not in t.text()

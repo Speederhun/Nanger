@@ -277,4 +277,5 @@ HU = {
     "make the shell stay in the folder where you quit":
         "a shell abban a mappában maradjon, ahol kilépsz",
     "print the shell function (bash, zsh, fish)": "a shell-függvény kiírása (bash, zsh, fish)",
+    "Reading…": "Olvasás…",
 }

@@ -14,7 +14,7 @@ from .helptext import browser_help
 from .i18n import tr
 from .keys import BACKSPACE, C, ENTER, ESC, K_ALT_LEFT, K_ALT_RIGHT
 from . import archiver
-from .media import ARCHIVE_EXT, OFFICE_EXT, archive_lines, office_text, can_images, cached_render, draw_grid, file_kind, pdf_text
+from .media import ARCHIVE_EXT, OFFICE_EXT, archive_preview, office_text, can_images, cached_render, draw_grid, file_kind, pdf_text
 from .term import A, clean, draw_help, put
 from .util import human, size_column, unique_path
 
@@ -650,7 +650,10 @@ class Browser:
         elif kind in ("image", "pdf"):
             return self.preview_media(p, kind, th, w3, key, st)
         elif kind == "archive":
-            out, more = archive_lines(p, th - 1)
+            res = archive_preview(p, st.st_mtime_ns, th - 1)
+            if res is None:     # still being read in the background: do not cache this
+                return ("lines", [(tr("Reading…"), A["ln"])], caption)
+            out, more = res
             out = [(tr("Archive — Enter: open"), A["ln"])] + out
             if more:
                 out.append(("…", A["ln"]))

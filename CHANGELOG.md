@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.1
+
+- Archive previews are read in the background (no lag while moving over big archives or
+  `.7z`/`.tar.gz` files); `.7z`/`.rar`/`.iso` listings now look like zip listings (size + name).
+
 ## 1.9.0
 
 - **The shell stays in the folder where you quit.** A program cannot change its parent shell's

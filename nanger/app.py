@@ -343,6 +343,7 @@ class App:
     # ---- keyboard
     def getkey(self, mouse=False):
         self._want_mouse = mouse
+        self.scr.timeout(150 if media.previews_pending() else -1)  # redraw when a listing is ready
         if self.queue:
             return self.queue.popleft()
         try:
@@ -560,6 +561,7 @@ class App:
     def draw(self, overlay=None):
         scr = self.scr
         scr.erase()
+        media.begin_frame()
         media.OVERLAY.clear()
         media.GRAPHICS.clear()
         term.HELP_REGIONS.clear()
