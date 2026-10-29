@@ -117,6 +117,10 @@ MOVING (arrows or vim keys)
   =   compare two marked files (or the marked one with the current one), side by side
   M   connect to a remote folder over SSH (user@host:/path, needs sshfs); empty = disconnect
   T   colour theme menu (dark, light, solarized, gruvbox, nord)
+  F   quick filter: type to narrow the list (Enter opens, Esc clears)
+  w   two panels side by side; Tab switches panel, C / W copy / move to the other panel
+  Ctrl+T new tab   Ctrl+W close tab   [ ]  or  Alt+1..9  switch tab   (F4 = back to the editor)
+  Go to temp / home / root folder: no key by default - assign one in the K / F9 menu
   . or zh   show / hide hidden files
   mouse   click select, double-click open, wheel scroll, right-click or the side "back"
           button = previous folder (forward button = next), drag in the editor to select
@@ -171,6 +175,10 @@ MOZGÁS (nyilak vagy vim-billentyűk)
   =   két kijelölt fájl (vagy a kijelölt és az aktuális) összehasonlítása egymás mellett
   M   távoli mappa SSH-n (user@host:/mappa, sshfs kell); üresen = lecsatlakozás
   T   színtéma menü (sötét, világos, solarized, gruvbox, nord)
+  F   gyors szűrő: gépelj, a lista szűkül (Enter megnyit, Esc töröl)
+  w   két panel egymás mellett; Tab vált panelt, C / W másol / mozgat a másik panelre
+  Ctrl+T új fül   Ctrl+W fül bezárása   [ ]  vagy  Alt+1..9  fülváltás   (F4 = vissza a szerkesztőhöz)
+  Ugrás a temp / home / gyökér mappába: alapból nincs billentyű - állítsd be a K / F9 menüben
   . vagy zh   rejtett fájlok mutatása / elrejtése
   egér    kattintás kijelöl, dupla kattintás megnyit, görgő lapoz, jobb gomb vagy az oldalsó
           „vissza” gomb = előző mappa (előre gomb = következő), szerkesztőben húzás = kijelölés

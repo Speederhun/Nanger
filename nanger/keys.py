@@ -47,6 +47,15 @@ ESCAPES.update({"b": K_ALT_LEFT, "f": K_ALT_RIGHT})   # macOS Terminal/iTerm: Op
 for _d in range(1, 10):
     ESCAPES[str(_d)] = K_ALT_DIGIT + _d  # Alt+1 .. Alt+9
 
+# actions that have no key until the user assigns one (never produced by the keyboard)
+VIRTUAL = {"go-temp": 20201, "go-home": 20202, "go-root": 20203}
+K_GO_TEMP, K_GO_HOME, K_GO_ROOT = 20201, 20202, 20203
+
+
+def is_virtual(k):
+    return k in VIRTUAL.values()
+
+
 _NAMES = {
     "enter": 10, "return": 10, "esc": ESC, "escape": ESC, "tab": 9, "space": " ",
     "backspace": 127, "delete": curses.KEY_DC, "del": curses.KEY_DC,
@@ -55,6 +64,7 @@ _NAMES = {
     "pageup": curses.KEY_PPAGE, "pagedown": curses.KEY_NPAGE,
     "shift-tab": curses.KEY_BTAB, "alt-left": K_ALT_LEFT, "alt-right": K_ALT_RIGHT,
 }
+_NAMES.update(VIRTUAL)
 
 
 def parse_key(name):
@@ -86,6 +96,9 @@ def key_name(k):
     """Inverse of parse_key, for the config file. None if the key cannot be named."""
     if k == NOOP:
         return "none"
+    for n, code in VIRTUAL.items():
+        if k == code:
+            return n
     if isinstance(k, str):
         return k if len(k) == 1 and k != " " else ("space" if k == " " else None)
     for n in ("enter", "tab", "backspace", "delete", "up", "down", "left", "right", "home",
@@ -104,7 +117,7 @@ def key_name(k):
 
 def key_label(k):
     """Human readable: 'Ctrl+S', 'F4', 'Enter', 'x'."""
-    if k is None:
+    if k is None or is_virtual(k):
         return "—"
     n = key_name(k)
     if n is None:

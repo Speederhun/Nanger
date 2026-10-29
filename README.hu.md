@@ -5,6 +5,12 @@ szerkesztővel, amely olyan egyszerű, mint a nano (Ctrl-billentyűk, mindig lá
 de tud vim-es dolgokat is (regex-csere, `:g/minta/d`, rendezés, szűrés shell-parancson,
 makrók, visszavonás).
 
+## Újdonságok az 1.11-ben
+
+gyors szűrő (`F`), fülek (`Ctrl+T`, `Ctrl+W`, `[` `]`, `Alt+1…9`), osztott panel (`w`, `Tab` vált,
+`C`/`W` másol/mozgat a másik panelre), valamint kikötetlen ugrás-akciók a temp / home / gyökér
+mappába (a `K` / `F9` menüben rendelhetsz hozzájuk billentyűt).
+
 ## Újdonságok az 1.10-ben
 
 színtémák (`T`: sötét, világos, Solarized, Gruvbox, Nord), jogosultság és tulajdonos a kijelölteken

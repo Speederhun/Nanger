@@ -24,11 +24,22 @@ from .util import load_text, set_system_clipboard
 from .viewer import Viewer
 
 
+class Tab:
+    """One file-manager tab: one panel, or two when split."""
+    def __init__(self, browser):
+        self.panes = [browser]
+        self.active = 0
+        self.split = False
+
+
 class App:
     def __init__(self, scr, target, line=None):
         self.scr = scr
         self.msg = ""
         self.msg_err = False
+        self.cur = 0                # current tab
+        self.fclip = None           # file clipboard shared by all panels: (paths, "copy" | "cut")
+        self.tab_hits = []          # clickable tab labels (x0, x1, index)
         self.clip = ("", False)
         self.running = True
         self.queue = deque()
@@ -50,11 +61,11 @@ class App:
         self.file_mode_only = False  # started on a file and never opened the file manager
         target = os.path.abspath(os.path.expanduser(target))
         if os.path.isdir(target):
-            self.browser = Browser(self, target)
+            self.tabs = [Tab(Browser(self, target))]
             self.view = self.browser
         else:
             d = os.path.dirname(target)
-            self.browser = Browser(self, d if os.path.isdir(d) else os.getcwd())
+            self.tabs = [Tab(Browser(self, d if os.path.isdir(d) else os.getcwd()))]
             self.view = self.browser
             self.quit_when_empty = True
             self.file_mode_only = True
@@ -71,6 +82,76 @@ class App:
     def error(self, m):
         self.msg, self.msg_err = m, True
         curses.beep()
+
+    # ---- tabs and panels
+    @property
+    def tab(self):
+        return self.tabs[self.cur]
+
+    @property
+    def browser(self):
+        t = self.tabs[self.cur]
+        return t.panes[t.active]
+
+    def other_pane(self):
+        t = self.tab
+        return t.panes[1 - t.active] if t.split and len(t.panes) == 2 else None
+
+    def focus_browser(self):
+        if isinstance(self.view, Browser):
+            self.view = self.browser
+
+    def new_tab(self):
+        from .browser import Browser as B
+        src = self.browser
+        b = B(self, src.cwd)
+        b.hidden, b.sort, b.reverse = src.hidden, src.sort, src.reverse
+        b.refresh()
+        self.tabs.append(Tab(b))
+        self.cur = len(self.tabs) - 1
+        self.focus_browser()
+        self.info(tr("Tab {n}").format(n=self.cur + 1))
+
+    def close_tab(self):
+        if len(self.tabs) == 1:
+            self.info(tr("This is the last tab"))
+            return
+        del self.tabs[self.cur]
+        self.cur = min(self.cur, len(self.tabs) - 1)
+        self.focus_browser()
+
+    def goto_tab(self, i):
+        if 0 <= i < len(self.tabs):
+            self.cur = i
+            self.focus_browser()
+        else:
+            self.error(tr("No tab {n}").format(n=i + 1))
+
+    def toggle_split(self):
+        t = self.tab
+        if not t.split:
+            if len(t.panes) == 1:
+                from .browser import Browser as B
+                src = t.panes[0]
+                b = B(self, src.cwd)
+                b.hidden, b.sort, b.reverse = src.hidden, src.sort, src.reverse
+                b.refresh()
+                t.panes.append(b)
+            t.split = True
+        else:
+            t.split = False
+        self.focus_browser()
+
+    def switch_pane(self):
+        t = self.tab
+        if t.split and len(t.panes) == 2:
+            t.active = 1 - t.active
+            self.focus_browser()
+
+    def refresh_panels(self):
+        for t in self.tabs:
+            for b in t.panes:
+                b.refresh(os.path.basename(b.current()) if b.current() else None)
 
     def text_height(self):
         return self.scr.getmaxyx()[0] - 4
@@ -590,6 +671,8 @@ class App:
             else:
                 mode = "editor" if isinstance(self.view, Editor) else \
                     "browser" if self.view is self.browser else None
+                if getattr(self.view, "filtering", False):
+                    mode = None              # typing a filter: keys are text, not commands
                 if mode:
                     k = self.resolve_key(mode, k)
                     if k is None:

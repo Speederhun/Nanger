@@ -3,7 +3,7 @@
 A binding is a tuple of one or two keys (a "sequence", e.g. ("z", "h")); the key map is
 {pressed sequence: default key of the action}."""
 from .i18n import tr
-from .keys import NOOP, parse_key, seq_name
+from .keys import NOOP, is_virtual, parse_key, seq_name
 
 # (message id, default key name)
 BROWSER = [
@@ -17,6 +17,11 @@ BROWSER = [
     ("Invert selection", "A"), ("Colour theme", "T"),
     ("Permissions", "P"), ("Owner", "O"),
     ("Connect (SSH)", "M"), ("Compare", "="),
+    ("Filter", "F"), ("Split panel", "w"), ("Other panel", "tab"),
+    ("Copy to other panel", "C"), ("Move to other panel", "W"),
+    ("Go to temp folder", "go-temp"), ("Go to home folder", "go-home"),
+    ("Go to root folder", "go-root"),
+    ("New tab", "ctrl-t"), ("Close tab", "ctrl-w"), ("Previous tab", "["), ("Next tab", "]"),
 ]
 EDITOR = [
     ("Save", "ctrl-s"), ("Save as: ", "ctrl-o"), ("Close", "ctrl-q"), ("Find", "ctrl-f"),
@@ -46,7 +51,7 @@ def bindings(mode, keymap):
         if seqs:
             out.append(sorted(seqs, key=len)[0])
         elif keymap.get(d) is None:
-            out.append(d)
+            out.append(None if is_virtual(d[0]) else d)
         else:
             out.append(None)
     return out
@@ -61,6 +66,8 @@ def keymap_from(mode, binds):
             km[b] = d[0]
     for b, d in zip(binds, ds):
         # the old key stops working, unless it is the first key of a new two-key sequence
+        if is_virtual(d[0]):
+            continue                    # no default key: nothing to switch off
         if b != d and d not in km and not any(x and x[:1] == d for x in binds):
             km[d] = NOOP
     return km

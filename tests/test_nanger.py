@@ -1274,3 +1274,102 @@ def test_normal_quit_without_saving_leaves_no_recovery(spawn, work, env):
     t.send("y")                                   # mentés nélkül kilép
     time.sleep(0.8)
     assert not _recovery_files(env)
+
+
+def test_quick_filter(spawn, work):
+    for n in ("browser.py", "breadcrumb.py", "app.py", "zebra.txt"):
+        (work / n).write_text("x")
+    t = spawn(".")
+    t.send("F")
+    t.send("br")
+    txt = t.text()
+    assert "Szűrő: br" in txt and "3 találat / 4 elem" in txt    # browser, breadcrumb, zebra
+    assert "app.py" not in txt
+    t.send("o")
+    assert "1 találat / 4 elem" in t.text()
+    t.send("\x7f")                                  # Backspace: vissza "br"
+    assert "3 találat / 4 elem" in t.text()
+    t.send("\x1b")
+    assert "Szűrő:" not in t.text() and "app.py" in t.text()
+    t.send("F")
+    t.send("zeb")
+    t.send("\r")                                    # megnyitja az egyetlen találatot
+    assert "Szűrő:" not in t.text()
+
+
+def test_tabs_new_switch_close(spawn, work):
+    (work / "sub").mkdir()
+    (work / "sub" / "inner.txt").write_text("x")
+    t = spawn(".")
+    t.send("\x14")                                  # Ctrl+T
+    assert "2. fül" in t.text()
+    assert " 1 " in t.row(0) and " 2 " in t.row(0)
+    t.send("\r")                                    # 2. fül: belép a sub-ba
+    assert "inner.txt" in t.text()
+    t.send("[")                                     # vissza az 1. fülre: még a work-ben
+    assert "sub" in t.text() and "inner.txt" not in t.text().split("│")[1]
+    t.send("]")
+    assert "inner.txt" in t.text()
+    t.send("\x17")                                  # Ctrl+W bezár
+    assert " 2 " not in t.row(0)
+    t.send("\x17")
+    assert "utolsó fül" in t.text()
+
+
+def test_split_panels_copy_and_move(spawn, work):
+    (work / "dst").mkdir()
+    (work / "a.txt").write_text("alpha")
+    (work / "b.txt").write_text("beta")
+    t = spawn(".")
+    t.send("w")
+    assert "két panel" in t.row(0)
+    t.send("\t")                                    # jobb panel aktív (a dst mappán áll)
+    t.send("\r")                                    # belép a dst-be (jobb panel)
+    t.send("\t")                                    # vissza a bal panelre
+    t.send("j")                                     # a.txt
+    t.send("C")
+    assert "Átmásolva" in t.text()
+    assert (work / "dst" / "a.txt").read_text() == "alpha"
+    assert (work / "a.txt").exists()
+    t.send("j")                                     # b.txt
+    t.send("W")
+    assert "Áthelyezve" in t.text()
+    assert (work / "dst" / "b.txt").exists() and not (work / "b.txt").exists()
+    t.send("w")                                     # egy panel
+    assert "két panel" not in t.row(0)
+
+
+def test_split_help_and_copy_without_second_panel(spawn, work):
+    (work / "a.txt").write_text("x")
+    t = spawn(".")
+    t.send("C")
+    assert "második panelt" in t.text()
+
+
+def test_goto_actions_unbound_until_set(spawn, work, env):
+    cfg = Path(env["XDG_CONFIG_HOME"]) / "nanger"
+    cfg.mkdir(parents=True)
+    t = spawn(".")
+    t.send("gx")                                    # nincs kötés: nem történik semmi
+    assert str(work.name) in t.row(0)
+    (cfg / "config.ini").write_text(
+        "[keys.browser]\nf2 = go-root\nf3 = go-home\nf4 = go-temp\n")
+    t2 = spawn(".")
+    t2.send("\x1bOQ")                               # F2 -> gyökér
+    assert " / " in t2.row(0) or t2.row(0).rstrip().endswith("/")
+    t2.send("\x1bOR")                               # F3 -> home
+    assert "~" in t2.row(0) or str(Path(env["HOME"]).name) in t2.row(0)
+
+
+def test_unbound_actions_in_key_map():
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from nanger import actions
+    from nanger.keys import K_GO_ROOT, key_name, parse_key
+    i = next(n for n, (m, d) in enumerate(actions.BROWSER) if d == "go-root")
+    assert actions.bindings("browser", {})[i] is None          # nincs alapértelmezett kötés
+    assert key_name(K_GO_ROOT) == "go-root" and parse_key("go-root") == K_GO_ROOT
+    km, _ = actions.rebind("browser", {}, i, ("Q",))
+    assert actions.bindings("browser", km)[i] == ("Q",)
+    km2, _ = actions.reset("browser", km, i)
+    assert actions.bindings("browser", km2)[i] is None

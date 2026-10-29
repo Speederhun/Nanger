@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.11.0
+
+- **Quick filter** (`F`): type to narrow the list of the current folder; the match is highlighted,
+  Enter opens, Esc clears.
+- **Tabs**: `Ctrl+T` new, `Ctrl+W` close, `[` / `]` or `Alt+1`…`9` switch; the tab bar is clickable.
+- **Two panels** (`w`): `Tab` switches panel, `C` / `W` copy / move to the other panel; the file
+  clipboard (`y`/`x`/`p`) is shared between panels and tabs. In split mode `F4` goes back to the
+  editor (`Tab` is the panel switch).
+- New key-menu actions with **no default key**: go to the temp / home / root folder.
+
 ## 1.10.1
 
 - On exit, if the shell is not set up to follow you (no `nanger --install-shell` yet), a hint with the detected shell is printed.

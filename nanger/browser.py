@@ -12,7 +12,8 @@ from .config import settings
 from .fsops import load_bookmarks, save_bookmarks, trash, tree_size
 from .helptext import browser_help
 from .i18n import tr
-from .keys import BACKSPACE, C, ENTER, ESC, K_ALT_LEFT, K_ALT_RIGHT
+from .keys import (BACKSPACE, C, ENTER, ESC, K_ALT_DIGIT, K_ALT_LEFT, K_ALT_RIGHT, K_GO_HOME,
+                   K_GO_ROOT, K_GO_TEMP)
 from . import archiver
 from .media import ARCHIVE_EXT, OFFICE_EXT, archive_preview, office_text, can_images, cached_render, draw_grid, file_kind, pdf_text
 from .term import A, clean, draw_help, put
@@ -36,7 +37,13 @@ def help_bar1():
 def help_bar2():
     return [(tr("Space"), tr("Mark")), ("y", tr("Copy")), ("x", tr("Cut")), ("p", tr("Paste")),
             ("s", tr("Sort")), ("v", tr("View")), ("o", tr("External")), ("f", tr("Grep")),
-            ("?", tr("Help"))]
+            ("F", tr("Filter")), ("?", tr("Help"))]
+
+
+def split_help():
+    return [("Tab", tr("Other panel")), ("C", tr("Copy there")), ("W", tr("Move there")),
+            ("w", tr("One panel")), ("F", tr("Filter")), ("Ctrl+T", tr("New tab")),
+            ("F4", tr("Editor")), ("?", tr("Help"))]
 
 
 def git_mark(xy):
@@ -66,13 +73,23 @@ class Browser:
         self.sel = self.top = 0
         self.entries = []
         self.tagged = set()
-        self.marked = None  # (paths, "copy" | "cut")
+        self.filt = ""            # quick filter text
+        self.filtering = False     # typing into the filter
         self.last_search = ""
         self.last_grep = ""
         self._ls_cache = {}
         self._pv_key = None
         self._pv = ("lines", [], "")
         self.refresh()
+
+    @property
+    def marked(self):
+        """The file clipboard (paths, "copy" | "cut") is shared by every panel and tab."""
+        return self.app.fclip
+
+    @marked.setter
+    def marked(self, value):
+        self.app.fclip = value
 
     def listdir(self, d):
         try:
@@ -118,6 +135,9 @@ class Browser:
         if e is None:
             self.app.error(tr("The folder cannot be read"))
             e = []
+        if self.filt:
+            f = self.filt.lower()
+            e = [n for n in e if f in n.lower()]
         self.entries = e
         if select in e:
             self.sel = e.index(select)
@@ -142,6 +162,7 @@ class Browser:
                 del self.back[:-100]
         self.cwd = path
         self.sel = self.top = 0
+        self.filt, self.filtering = "", False
         self.refresh(select)
 
     # ---- sizes, archives
@@ -413,6 +434,9 @@ class Browser:
         n = len(self.entries)
         cur = self.current()
         page = max(1, app.text_height() - 1)
+        if self.filtering:
+            self.filter_key(k)
+            return
         if k in (curses.KEY_UP, "k"):
             self.sel = max(0, self.sel - 1)
         elif k in (curses.KEY_DOWN, "j"):
@@ -499,8 +523,37 @@ class Browser:
             self.compress()
         elif k == "U":
             self.extract()
+        elif k == K_GO_TEMP:
+            self.cd(tempfile.gettempdir())
+        elif k == K_GO_HOME:
+            self.cd(os.path.expanduser("~"))
+        elif k == K_GO_ROOT:
+            self.cd(os.sep)
+        elif k == "F":
+            self.filtering = True
         elif k == ESC:
-            self.tagged.clear()
+            if self.filt:
+                self.set_filter("")
+            else:
+                self.tagged.clear()
+        elif k == "w":
+            app.toggle_split()
+        elif k == 9 and app.tab.split:
+            app.switch_pane()
+        elif k == "C":
+            self.to_other_panel(False)
+        elif k == "W":
+            self.to_other_panel(True)
+        elif k == C("t"):
+            app.new_tab()
+        elif k == C("w"):
+            app.close_tab()
+        elif k == "]":
+            app.goto_tab((app.cur + 1) % len(app.tabs))
+        elif k == "[":
+            app.goto_tab((app.cur - 1) % len(app.tabs))
+        elif isinstance(k, int) and K_ALT_DIGIT < k <= K_ALT_DIGIT + 9:
+            app.goto_tab(k - K_ALT_DIGIT - 1)
         elif k in ("y", "x"):
             t = self.targets()
             if t:
@@ -590,7 +643,42 @@ class Browser:
         elif k in ("K", curses.KEY_F9):
             app.show_keys("browser")
 
+    def mouse_split(self, x, y, kind):
+        app = self.app
+        half, th = app.split_geom
+        if kind == "right":
+            self.handle(curses.KEY_LEFT)
+            return
+        if kind == "back":
+            self.go_back()
+            return
+        if kind == "forward":
+            self.go_forward()
+            return
+        if kind == "drag" or not 2 <= y < 2 + th:
+            return
+        side = 0 if x < half else 1
+        if side != app.tab.active:
+            app.tab.active = side
+            app.focus_browser()
+        b = app.browser
+        i = b.top + y - 2
+        if 0 <= i < len(b.entries):
+            b.sel = i
+            if kind == "double":
+                b.handle(10)
+
     def mouse(self, x, y, kind):
+        app = self.app
+        if y == 0 and kind in ("click", "double"):
+            for x0, x1, i in app.tab_hits:
+                if x0 <= x < x1:
+                    app.goto_tab(i)
+                    return
+            return
+        if app.tab.split and app.other_pane() is not None:
+            self.mouse_split(x, y, kind)
+            return
         if not getattr(self, "geom", None):
             return
         w1, w2, th = self.geom
@@ -690,21 +778,83 @@ class Browser:
         self.tagged.clear()
         self.refresh()
 
+    def set_filter(self, text):
+        cur = self.current()
+        self.filt = text
+        self.refresh(os.path.basename(cur) if cur else None)
+        if not text:
+            self.filtering = False
+
+    def filter_key(self, k):
+        """Keys while typing the quick filter."""
+        if k == ESC:
+            self.set_filter("")
+        elif k in ENTER:
+            self.filtering = False
+            cur = self.current()
+            if cur and os.path.isdir(cur):
+                self.cd(cur)
+            elif cur:
+                self.app.open_path(cur)
+        elif k in BACKSPACE:
+            if self.filt:
+                self.set_filter(self.filt[:-1])
+            else:
+                self.filtering = False
+        elif k in (curses.KEY_DOWN, C("n")):
+            self.sel = min(max(0, len(self.entries) - 1), self.sel + 1)
+        elif k in (curses.KEY_UP, C("p")):
+            self.sel = max(0, self.sel - 1)
+        elif k == curses.KEY_NPAGE:
+            self.sel = min(max(0, len(self.entries) - 1), self.sel + 10)
+        elif k == curses.KEY_PPAGE:
+            self.sel = max(0, self.sel - 10)
+        elif isinstance(k, str) and k.isprintable():
+            self.set_filter(self.filt + k)
+        self.sel = max(0, min(self.sel, len(self.entries) - 1))
+
+    def to_other_panel(self, move):
+        """C / W: copy or move the marked items into the folder of the other panel."""
+        app = self.app
+        other = app.other_pane()
+        if other is None:
+            app.error(tr("Open a second panel first (w)"))
+            return
+        paths = self.targets()
+        if not paths:
+            return
+        last = self.transfer(paths, "cut" if move else "copy", other.cwd)
+        self.tagged.clear()
+        app.refresh_panels()
+        if last:
+            other.refresh(last)
+            app.info(tr("Moved to the other panel") if move else tr("Copied to the other panel"))
+
     def paste(self):
         if not self.marked:
             self.app.error(tr("Nothing to paste (y = copy, x = cut)"))
             return
         paths, mode = self.marked
+        last = self.transfer(paths, mode, self.cwd)
+        if mode == "cut":
+            self.marked = None
+        self.app.refresh_panels()
+        self.refresh(last)
+        if last:
+            self.app.info(tr("Pasted"))
+
+    def transfer(self, paths, mode, dest):
+        """Copy / move `paths` into the folder `dest`; returns the last created name."""
         last = None
         for src in paths:
             if not os.path.lexists(src):
                 continue
-            if mode == "cut" and os.path.dirname(src) == self.cwd:
+            if mode == "cut" and os.path.dirname(src) == dest:
                 continue
-            if os.path.isdir(src) and (self.cwd + os.sep).startswith(src + os.sep):
+            if os.path.isdir(src) and (dest + os.sep).startswith(src + os.sep):
                 self.app.error(tr("A folder cannot be copied into itself"))
                 continue
-            dst = unique_path(os.path.join(self.cwd, os.path.basename(src)))
+            dst = unique_path(os.path.join(dest, os.path.basename(src)))
             try:
                 if mode == "cut":
                     shutil.move(src, dst)
@@ -717,11 +867,7 @@ class Browser:
                 self.app.error(tr("Error: {name} ({error})").format(
                     name=os.path.basename(src), error=e.strerror or e))
                 break
-        if mode == "cut":
-            self.marked = None
-        self.refresh(last)
-        if last:
-            self.app.info(tr("Pasted"))
+        return last
 
     # ---- drawing
     def entry_attr(self, p):
@@ -735,7 +881,7 @@ class Browser:
             return A["exe"]
         return 0
 
-    def draw_list(self, scr, x, width, d, ents, sel, top, th, active):
+    def draw_list(self, scr, x, width, d, ents, sel, top, th, active, row0=1, hl=curses.A_REVERSE):
         git_on = active and gitinfo.repo_root(d) is not None
         for r in range(th):
             i = top + r
@@ -759,12 +905,18 @@ class Browser:
             room = width - len(size)
             text = (label[:room].ljust(room) + size) if room > 4 else label[:width].ljust(width)
             if i == sel:
-                attr |= curses.A_REVERSE
-            put(scr, 1 + r, x, text, attr)
+                attr |= hl
+            put(scr, row0 + r, x, text, attr)
+            if active and self.filt and d == self.cwd:
+                at = name.lower().find(self.filt.lower())
+                off = 1 + (1 if git_on else 0) + at
+                if at >= 0 and off < room:
+                    put(scr, row0 + r, x + off, clean(name)[at:at + len(self.filt)],
+                        attr | A["match"] | curses.A_BOLD)
             if git_on:
                 gch, gattr = git_mark(gitinfo.entry_status(d, name))
                 if gch != " ":
-                    put(scr, 1 + r, x + 1, gch, gattr | (curses.A_REVERSE if i == sel else 0))
+                    put(scr, row0 + r, x + 1, gch, gattr | (hl if i == sel else 0))
 
     def preview(self, p, th, w3):
         """('lines', [(text, attr)], caption) or ('image', cells, caption)"""
@@ -855,20 +1007,112 @@ class Browser:
         self._pv_key, self._pv = key, ("image", grid, "%s  %s" % (caption, human(st.st_size)))
         return self._pv
 
-    def draw(self, scr, h, w):
-        th = h - 4
+    def title(self, scr, w, shown):
+        """Row 0: the tab bar (when there are several tabs) followed by the path."""
+        app = self.app
+        put(scr, 0, 0, " " * w, A["title"])
+        app.tab_hits = []
+        if len(app.tabs) < 2:
+            put(scr, 0, 0, " nanger │ %s" % shown, A["title"])
+            return
+        x = 0
+        for i, t in enumerate(app.tabs):
+            b = t.panes[t.active]
+            name = os.path.basename(b.cwd) or "/"
+            lab = " %d %s " % (i + 1, clean(name)[:16])
+            if x + len(lab) >= w - 4:
+                break
+            put(scr, 0, x, lab, A["title"] | curses.A_BOLD if i == app.cur else A["ln"])
+            app.tab_hits.append((x, x + len(lab), i))
+            x += len(lab)
+        put(scr, 0, x, " │ %s" % shown, A["title"])
+
+    def status(self, scr, h, w, pcap=""):
         n = len(self.entries)
+        if self.filtering or self.filt:
+            msg = " %s %s▌ %s" % (tr("Filter:"), self.filt, tr("{m} matches / {n} items").format(
+                m=n, n=len(self.listdir(self.cwd) or [])))
+            msg += "  ·  " + (tr("Enter: open  ·  Esc: clear") if self.filtering
+                              else tr("F: edit  ·  Esc: clear"))
+            put(scr, h - 3, 0, msg[:w].ljust(w), A["key"])
+            return
+        if self.app.msg or not n:
+            return
+        cur = self.current()
+        try:
+            st = os.lstat(cur)
+            info = " %s  %s  %s   %d/%d" % (
+                statmod.filemode(st.st_mode), human(st.st_size),
+                time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                self.sel + 1, n)
+            if pcap and pcap != human(st.st_size):
+                info += "   " + pcap
+            if self.sort != "name" or self.reverse:
+                info += "   " + tr("sort: {mode}").format(
+                    mode=sort_label(self.sort, self.reverse).split(",")[0].split(" · ")[0]
+                    + (" ↑" if self.reverse else ""))
+            if self.tagged:
+                info += "   " + tr("{n} marked").format(n=len(self.tagged))
+            if self.marked:
+                info += "   " + tr("clipboard: {n}").format(n=len(self.marked[0]))
+            if self.app.buffers:
+                info += "   " + tr("open files: {n} (F4 = back)").format(n=len(self.app.buffers))
+            right = self.right_status()
+            room = max(0, w - len(right) - 3)
+            put(scr, h - 3, 0, info[:room], A["ln"])
+            put(scr, h - 3, max(0, w - len(right) - 1), right, A["ln"] | curses.A_BOLD)
+        except OSError:
+            pass
+
+    def shown_path(self):
+        home = os.path.expanduser("~")
+        return "~" + self.cwd[len(home):] if self.cwd.startswith(home) else self.cwd
+
+    def scroll_to_sel(self, th):
         if self.sel < self.top:
             self.top = self.sel
         elif self.sel >= self.top + th:
             self.top = self.sel - th + 1
+
+    def draw_split(self, scr, h, w):
+        """Two panels side by side (the active one is this browser)."""
+        app = self.app
+        t = app.tab
+        th = h - 5                                   # row 0 title, row 1 panel paths
+        half = w // 2
+        self.title(scr, w, "") if len(app.tabs) > 1 else \
+            put(scr, 0, 0, (" nanger │ " + tr("two panels") + " ").ljust(w), A["title"])
+        app.split_geom = (half, th)
+        for side, b in enumerate(t.panes):
+            x0 = 0 if side == 0 else half
+            width = half - 1 if side == 0 else w - half
+            on = side == t.active
+            b.scroll_to_sel(th)
+            put(scr, 1, x0, (" " + b.shown_path())[:width].ljust(width),
+                A["title"] if on else A["ln"])
+            b.geom = None
+            if b.entries:
+                b.draw_list(scr, x0, width, b.cwd, b.entries, b.sel, b.top, th, True, row0=2,
+                            hl=curses.A_REVERSE if on else curses.A_UNDERLINE)
+            else:
+                put(scr, 2, x0 + 1, tr("(empty folder — n: new file)")[:width - 1], A["ln"])
+        for r in range(th):
+            put(scr, 2 + r, half - 1, "│", A["ln"])
+        self.status(scr, h, w)
+        draw_help(scr, h - 2, help_bar1(), w)
+        draw_help(scr, h - 1, split_help(), w)
+        return None
+
+    def draw(self, scr, h, w):
+        if self.app.tab.split and self.app.other_pane() is not None:
+            return self.draw_split(scr, h, w)
+        th = h - 4
+        n = len(self.entries)
+        self.scroll_to_sel(th)
         w1 = max(10, w // 6)
         w2 = max(20, (w * 2) // 5)
         w3 = w - w1 - w2 - 2
-        home = os.path.expanduser("~")
-        shown = "~" + self.cwd[len(home):] if self.cwd.startswith(home) else self.cwd
-        put(scr, 0, 0, " " * w, A["title"])
-        put(scr, 0, 0, " nanger │ %s" % shown, A["title"])
+        self.title(scr, w, self.shown_path())
         parent = os.path.dirname(self.cwd)
         if parent != self.cwd:
             pents = self.listdir(parent) or []
@@ -894,33 +1138,9 @@ class Browser:
                     for r, (text, at) in enumerate(payload):
                         put(scr, 1 + r, w1 + w2 + 2, text[:w3], at)
         else:
-            put(scr, 1, w1 + 2, tr("(empty folder — n: new file)"), A["ln"])
-        if not self.app.msg and n:
-            cur = self.current()
-            try:
-                st = os.lstat(cur)
-                info = " %s  %s  %s   %d/%d" % (
-                    statmod.filemode(st.st_mode), human(st.st_size),
-                    time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
-                    self.sel + 1, n)
-                if pcap and pcap != human(st.st_size):
-                    info += "   " + pcap
-                if self.sort != "name" or self.reverse:
-                    info += "   " + tr("sort: {mode}").format(
-                        mode=sort_label(self.sort, self.reverse).split(",")[0].split(" · ")[0]
-                        + (" ↑" if self.reverse else ""))
-                if self.tagged:
-                    info += "   " + tr("{n} marked").format(n=len(self.tagged))
-                if self.marked:
-                    info += "   " + tr("clipboard: {n}").format(n=len(self.marked[0]))
-                if self.app.buffers:
-                    info += "   " + tr("open files: {n} (Tab = back)").format(n=len(self.app.buffers))
-                right = self.right_status()
-                room = max(0, w - len(right) - 3)
-                put(scr, h - 3, 0, info[:room], A["ln"])
-                put(scr, h - 3, max(0, w - len(right) - 1), right, A["ln"] | curses.A_BOLD)
-            except OSError:
-                pass
+            put(scr, 1, w1 + 2, (tr("(no matches)") if self.filt else tr("(empty folder — n: new file)")),
+                A["ln"])
+        self.status(scr, h, w, pcap)
         draw_help(scr, h - 2, help_bar1(), w)
         draw_help(scr, h - 1, help_bar2(), w)
         return None

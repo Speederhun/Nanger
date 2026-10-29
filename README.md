@@ -113,6 +113,9 @@ After that, quitting `nanger` leaves your terminal in the folder you were browsi
 | `P` `O` | permissions (`chmod`) / owner (`chown`) of the marked files (sudo offered if needed) |
 | `=` | compare two marked files side by side (editor: `:diff` = buffer vs. disk) |
 | `M` | connect to `user@host:/path` over SSH (needs `sshfs`; also `nanger user@host:/path`) |
+| `F` | quick filter: type to narrow the list |
+| `w` `Tab` `C` `W` | two panels; switch panel; copy / move to the other panel |
+| `Ctrl+T` `Ctrl+W` `[` `]` | new tab, close tab, previous / next tab (`Alt+1`…`9` jumps) |
 | `T` | colour themes: dark, light, solarized-dark/light, gruvbox, nord (saved) |
 
 | Editor | |
