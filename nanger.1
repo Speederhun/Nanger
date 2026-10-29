@@ -1,0 +1,123 @@
+.TH NANGER 1 "2026" "nanger 1.0.0" "Felhasználói parancsok"
+.SH NÉV
+nanger \- fájlkezelő és szövegszerkesztő egyben (ranger + nano + vim)
+.SH ÁTTEKINTÉS
+.B nanger
+.RI [ mappa | fájl ]
+.SH LEÍRÁS
+A
+.B nanger
+egy terminálos fájlkezelő ranger-stílusú, háromoszlopos nézettel, beépített
+szövegszerkesztővel. A szerkesztő úgy használható, mint a nano: Ctrl-billentyűk,
+mindig látható súgósor. Közben a vim erejét is nyújtja: regex-csere, sorok
+törlése minta alapján, rendezés, szűrés shell-parancson át, makrók,
+visszavonás/újra.
+.PP
+Argumentum nélkül az aktuális mappát nyitja meg. Mappát megadva abban indul,
+fájlt megadva azonnal szerkeszti.
+.SH FÁJLKEZELŐ
+.TP
+.B Fel/Le, k/j
+mozgás
+.TP
+.B Bal, h, Backspace
+szülő mappa
+.TP
+.B Jobb, l, Enter
+belépés a mappába vagy a fájl szerkesztése
+.TP
+.B n / N
+új fájl / új mappa
+.TP
+.B r
+átnevezés
+.TP
+.B D, Delete
+törlés (megerősítéssel)
+.TP
+.B Szóköz
+megjelölés
+.TP
+.B y / x / p
+másolás / kivágás / beillesztés
+.TP
+.B /
+keresés név alapján
+.TP
+.B .
+rejtett fájlok
+.TP
+.B c
+ugrás elérési útra
+.TP
+.B S / !
+shell nyitása / parancs futtatása az aktuális mappában
+.TP
+.B q
+kilépés
+.SH SZERKESZTŐ
+.TP
+.B Ctrl+S / Ctrl+O
+mentés / mentés másként
+.TP
+.B Ctrl+Q, Ctrl+X
+bezárás
+.TP
+.B Ctrl+F / Ctrl+N
+keresés / következő találat
+.TP
+.B Ctrl+R
+csere (reguláris kifejezéssel)
+.TP
+.B Ctrl+G
+ugrás sorra
+.TP
+.B Ctrl+Z / Ctrl+Y
+visszavonás / újra
+.TP
+.B Shift+nyilak, Ctrl+B, Ctrl+A
+kijelölés
+.TP
+.B Ctrl+C / Ctrl+K / Ctrl+V
+másolás / kivágás / beillesztés
+.TP
+.B Ctrl+D
+sor duplikálása
+.TP
+.B F5 / F6
+makró felvétele / lejátszása
+.TP
+.B Ctrl+P
+parancssor (lásd lent)
+.TP
+.B F1
+súgó
+.SH PARANCSOK (Ctrl+P)
+.TP
+.B w, q, q!, wq
+mentés, kilépés, kilépés mentés nélkül, mindkettő
+.TP
+.BI % s/minta/csere/gi
+csere az egész fájlban; szám,szám előtag esetén a megadott sorokban
+.TP
+.BI g/ minta /d ", " v/ minta /d
+illeszkedő / nem illeszkedő sorok törlése
+.TP
+.B sort, sort!, uniq, upper, lower
+rendezés és átalakítás
+.TP
+.BI ! parancs
+a kijelölt sorok átszűrése egy shell-parancson
+.TP
+.BI "r !" parancs
+a parancs kimenetének beszúrása
+.TP
+.BI @ N
+a makró lejátszása N-szer
+.SH KÖVETELMÉNYEK
+Python 3.8 vagy újabb. Külső csomag nem kell. Ha telepítve van a
+.BR wl-copy ,
+.B xclip
+vagy
+.BR xsel ,
+a másolt szöveg a rendszer vágólapjára is kerül.

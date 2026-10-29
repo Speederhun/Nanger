@@ -1,0 +1,19 @@
+# Maintainer: Speederhun <https://github.com/Speederhun/Nanger>
+pkgname=nanger
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Fájlkezelő és szerkesztő egyben (ranger + nano + vim)"
+arch=('any')
+url="https://github.com/Speederhun/Nanger"
+license=('MIT')
+depends=('python')
+makedepends=('git')
+optdepends=('wl-clipboard: rendszer-vágólap Waylandon'
+            'xclip: rendszer-vágólap X11-en')
+source=("$pkgname::git+https://github.com/Speederhun/Nanger.git#tag=v$pkgver")
+sha256sums=('SKIP')
+
+package() {
+  cd "$srcdir/$pkgname"
+  make DESTDIR="$pkgdir" PREFIX=/usr install
+}

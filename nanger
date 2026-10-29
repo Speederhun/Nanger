@@ -1,0 +1,1741 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+nanger — ranger + nano + vim egy eszközben.
+
+  * Fájlkezelő: ranger-szerű, három oszlop (szülő | aktuális | előnézet)
+  * Szerkesztő: nano-egyszerű Ctrl-billentyűk, mindig látható súgósorral
+  * Vim-erő: parancssor (Ctrl+P), regex-csere (:%s/a/b/g), :g/minta/d,
+    :sort, :!parancs szűrés, makrók (F5 felvétel / F6 lejátszás),
+    visszavonás / újra, kijelölés, több sor behúzása
+
+Használat:  nanger [mappa | fájl]
+"""
+import curses
+import locale
+import os
+import re
+import select
+import shutil
+import subprocess
+import sys
+import tempfile
+from collections import deque
+
+VERSION = "1.0.0"
+
+os.environ.setdefault("ESCDELAY", "25")
+locale.setlocale(locale.LC_ALL, "")
+
+TAB = 4
+ESC = 27
+
+
+def C(ch):
+    return ord(ch) & 0x1F
+
+
+ENTER = (10, 13, curses.KEY_ENTER)
+BACKSPACE = (curses.KEY_BACKSPACE, 127, 8)
+MOVES = (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_LEFT, curses.KEY_RIGHT,
+         curses.KEY_HOME, curses.KEY_END, curses.KEY_PPAGE, curses.KEY_NPAGE)
+SHIFT_MOVES = {
+    curses.KEY_SLEFT: curses.KEY_LEFT, curses.KEY_SRIGHT: curses.KEY_RIGHT,
+    curses.KEY_SR: curses.KEY_UP, curses.KEY_SF: curses.KEY_DOWN,
+    curses.KEY_SHOME: curses.KEY_HOME, curses.KEY_SEND: curses.KEY_END,
+}
+
+_K = curses
+ESCAPES = {}
+for _p in ("[", "O"):
+    ESCAPES.update({_p + "A": _K.KEY_UP, _p + "B": _K.KEY_DOWN, _p + "C": _K.KEY_RIGHT,
+                    _p + "D": _K.KEY_LEFT, _p + "H": _K.KEY_HOME, _p + "F": _K.KEY_END})
+ESCAPES.update({
+    "[1;2A": _K.KEY_SR, "[1;2B": _K.KEY_SF, "[1;2C": _K.KEY_SRIGHT, "[1;2D": _K.KEY_SLEFT,
+    "[1;2H": _K.KEY_SHOME, "[1;2F": _K.KEY_SEND, "[Z": _K.KEY_BTAB,
+    "[1~": _K.KEY_HOME, "[7~": _K.KEY_HOME, "[4~": _K.KEY_END, "[8~": _K.KEY_END,
+    "[3~": _K.KEY_DC, "[5~": _K.KEY_PPAGE, "[6~": _K.KEY_NPAGE,
+    "OP": _K.KEY_F1, "OQ": _K.KEY_F2, "OR": _K.KEY_F3, "[11~": _K.KEY_F1,
+    "[12~": _K.KEY_F2, "[13~": _K.KEY_F3, "[15~": _K.KEY_F5, "[17~": _K.KEY_F6,
+    "[[A": _K.KEY_F1, "[[B": _K.KEY_F2, "[[C": _K.KEY_F3, "[[E": _K.KEY_F5,
+})
+
+A = {}  # színek / attribútumok
+
+
+def init_colors():
+    for k in ("exe", "link", "com", "str", "num", "kw", "err", "tag"):
+        A[k] = curses.A_NORMAL
+    A["dir"] = curses.A_BOLD
+    A["title"] = curses.A_REVERSE
+    A["key"] = curses.A_REVERSE
+    A["match"] = curses.A_UNDERLINE
+    A["ln"] = curses.A_DIM
+    A["err"] = curses.A_BOLD
+    if not curses.has_colors():
+        return
+    try:
+        curses.start_color()
+    except curses.error:
+        return
+    bg = -1
+    try:
+        curses.use_default_colors()
+    except curses.error:
+        bg = curses.COLOR_BLACK
+    spec = {
+        "dir": (curses.COLOR_BLUE, bg, curses.A_BOLD),
+        "exe": (curses.COLOR_GREEN, bg, curses.A_BOLD),
+        "link": (curses.COLOR_CYAN, bg, 0),
+        "com": (curses.COLOR_GREEN, bg, 0),
+        "str": (curses.COLOR_YELLOW, bg, 0),
+        "num": (curses.COLOR_CYAN, bg, 0),
+        "kw": (curses.COLOR_MAGENTA, bg, curses.A_BOLD),
+        "match": (curses.COLOR_BLACK, curses.COLOR_YELLOW, 0),
+        "err": (curses.COLOR_RED, bg, curses.A_BOLD),
+        "tag": (curses.COLOR_YELLOW, bg, curses.A_BOLD),
+    }
+    for i, (name, (fg, b, extra)) in enumerate(spec.items(), start=1):
+        try:
+            curses.init_pair(i, fg, b)
+            A[name] = curses.color_pair(i) | extra
+        except curses.error:
+            pass
+
+
+# ---------------------------------------------------------------- segédek
+
+def put(scr, y, x, text, attr=0):
+    h, w = scr.getmaxyx()
+    if y < 0 or y >= h or x < 0 or x >= w:
+        return
+    text = text[: w - x]
+    try:
+        scr.addstr(y, x, text, attr)
+    except curses.error:
+        pass  # jobb alsó cella írása hibát dob, de kiírja
+
+
+def clean(s):
+    return "".join(ch if ch >= " " or ch == "\t" else "·" for ch in s)
+
+
+def disp_col(line, idx):
+    col = 0
+    for ch in line[:idx]:
+        col += TAB - col % TAB if ch == "\t" else 1
+    return col
+
+
+def idx_from_col(line, target):
+    col = 0
+    for i, ch in enumerate(line):
+        col += TAB - col % TAB if ch == "\t" else 1
+        if col > target:
+            return i
+    return len(line)
+
+
+def human(n):
+    for u in ("B", "K", "M", "G", "T"):
+        if n < 1024:
+            return f"{n:.0f}{u}" if u == "B" else f"{n:.1f}{u}"
+        n /= 1024
+    return f"{n:.1f}P"
+
+
+def unique_path(dst):
+    if not os.path.lexists(dst):
+        return dst
+    base, ext = os.path.splitext(dst)
+    i = 1
+    while os.path.lexists(f"{base}_{i}{ext}"):
+        i += 1
+    return f"{base}_{i}{ext}"
+
+
+def split_delim(s, d):
+    parts, cur, i = [], "", 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "\\" and i + 1 < len(s):
+            cur += d if s[i + 1] == d else ch + s[i + 1]
+            i += 2
+            continue
+        if ch == d:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+        i += 1
+    parts.append(cur)
+    return parts
+
+
+def load_text(path):
+    with open(path, "rb") as f:
+        data = f.read()
+    if b"\0" in data[:8192]:
+        raise ValueError("bináris fájl, nem szerkeszthető")
+    try:
+        text, enc = data.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        text, enc = data.decode("iso-8859-2"), "iso-8859-2"
+    nl = "\r\n" if "\r\n" in text else "\n"
+    if nl == "\r\n":
+        text = text.replace("\r\n", "\n")
+    trailing = text.endswith("\n") or text == ""
+    if text.endswith("\n"):
+        text = text[:-1]
+    return text.split("\n"), enc, nl, trailing
+
+
+def save_text(path, lines, enc, nl, trailing):
+    path = os.path.realpath(path)
+    data = (nl.join(lines) + (nl if trailing else "")).encode(enc, errors="replace")
+    d = os.path.dirname(path)
+    try:
+        fd, tmp = tempfile.mkstemp(dir=d, prefix=".nanger-")
+    except OSError:
+        with open(path, "wb") as f:  # nincs írási jog a mappára: közvetlen írás
+            f.write(data)
+        return
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        if os.path.exists(path):
+            shutil.copymode(path, tmp)
+        else:
+            um = os.umask(0)
+            os.umask(um)
+            os.chmod(tmp, 0o666 & ~um)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def set_system_clipboard(text):
+    cmds = []
+    if os.environ.get("WAYLAND_DISPLAY"):
+        cmds.append(["wl-copy"])
+    if os.environ.get("DISPLAY"):
+        cmds += [["xclip", "-selection", "clipboard"], ["xsel", "-b", "-i"]]
+    for cmd in cmds:
+        if shutil.which(cmd[0]):
+            try:
+                subprocess.run(cmd, input=text.encode(), timeout=1,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+            return
+
+
+# ---------------------------------------------------------- szintaxis
+
+KEYWORDS = re.compile(
+    r"\b(?:if|elif|else|for|while|do|done|then|fi|case|esac|in|return|def|class|"
+    r"import|from|as|with|try|except|finally|raise|lambda|yield|pass|break|continue|"
+    r"and|or|not|is|None|True|False|function|const|let|var|new|this|null|true|false|"
+    r"undefined|switch|default|catch|throw|async|await|public|private|protected|"
+    r"static|void|int|char|float|double|long|bool|struct|enum|typedef|include|define|"
+    r"export|local|echo|fn|pub|use|mut|impl|match|package|func|go|defer|type|self)\b")
+STRINGS = re.compile(r'"(?:\\.|[^"\\])*"?|\'(?:\\.|[^\'\\])*\'?')
+NUMBERS = re.compile(r"\b(?:0x[0-9a-fA-F]+|\d+(?:\.\d+)?)\b")
+COMMENTS = {
+    ".py": "#", ".sh": "#", ".bash": "#", ".zsh": "#", ".rb": "#", ".pl": "#",
+    ".yml": "#", ".yaml": "#", ".toml": "#", ".conf": "#", ".cfg": "#", ".r": "#",
+    ".ini": ";", ".c": "//", ".h": "//", ".cpp": "//", ".hpp": "//", ".cc": "//",
+    ".java": "//", ".js": "//", ".ts": "//", ".jsx": "//", ".tsx": "//", ".go": "//",
+    ".rs": "//", ".php": "//", ".cs": "//", ".kt": "//", ".swift": "//", ".css": None,
+    ".json": None, ".lua": "--", ".sql": "--", ".hs": "--", ".vim": '"', ".tex": "%",
+}
+PLAIN = {".txt", ".md", ".log", ".csv", ".tsv", ".rst"}
+
+
+def highlight(line, ctok):
+    attrs = [0] * len(line)
+    if len(line) > 3000:
+        return attrs
+
+    def paint(s, e, a):
+        for i in range(s, e):
+            attrs[i] = a
+
+    for m in NUMBERS.finditer(line):
+        paint(m.start(), m.end(), A["num"])
+    for m in KEYWORDS.finditer(line):
+        paint(m.start(), m.end(), A["kw"])
+    spans = []
+    for m in STRINGS.finditer(line):
+        paint(m.start(), m.end(), A["str"])
+        spans.append((m.start(), m.end()))
+    if ctok:
+        i = line.find(ctok)
+        while i != -1 and any(s <= i < e for s, e in spans):
+            i = line.find(ctok, i + 1)
+        if i != -1:
+            paint(i, len(line), A["com"])
+    return attrs
+
+
+def draw_help(scr, row, items, w):
+    x = 0
+    for key, label in items:
+        if x >= w - 1:
+            break
+        put(scr, row, x, key, A["key"])
+        x += len(key)
+        put(scr, row, x, " " + label + "  ")
+        x += len(label) + 3
+
+
+# ---------------------------------------------------------- szerkesztő
+
+EDITOR_HELP1 = [("^S", "Mentés"), ("^Q", "Bezár"), ("^F", "Keres"), ("^N", "Következő"),
+                ("^R", "Csere"), ("^G", "Sorra ugrik"), ("^P", "Parancs"), ("F1", "Súgó")]
+EDITOR_HELP2 = [("^Z", "Vissza"), ("^Y", "Újra"), ("^B", "Kijelöl"), ("^A", "Mind"),
+                ("^C", "Másol"), ("^K", "Kivág"), ("^V", "Beilleszt"), ("^D", "Duplikál"),
+                ("F5/F6", "Makró")]
+
+EDITOR_HELP_TEXT = """\
+nanger — SZERKESZTŐ                                (bármely billentyű: vissza)
+
+ALAPOK (mint a nano)
+  Ctrl+S   mentés              Ctrl+O   mentés másként
+  Ctrl+Q   bezárás (vissza a fájlkezelőbe; Ctrl+X is jó)
+  Ctrl+F   keresés             Ctrl+N / F3  következő találat
+  Ctrl+R   csere (regex)       Ctrl+G   ugrás sorra (pl. 120 vagy 120:5)
+  Ctrl+Z   visszavonás         Ctrl+Y   újra
+  Ctrl+L   sorszámok be/ki     Esc      kijelölés megszüntetése
+
+KIJELÖLÉS ÉS VÁGÓLAP
+  Shift+nyilak   kijelölés      Ctrl+B   kijelölés-mód be/ki (nyilakkal bővül)
+  Ctrl+A   mindent kijelöl     Ctrl+C   másol (kijelölés nélkül: a sort)
+  Ctrl+K   kivág (egymás után több sort is gyűjt)
+  Ctrl+V   beilleszt (Ctrl+U is)  Ctrl+D   sor duplikálása
+  Tab / Shift+Tab   kijelölt sorok be- / kihúzása
+
+MAKRÓK (vim-erő)
+  F5   felvétel indítása / leállítása     F6   lejátszás
+  :@ 20   a makró lejátszása 20-szor
+
+PARANCSSOR — Ctrl+P (vagy F2), mint a vim ":" parancsa
+  w [fájl]   mentés          q / q!   kilépés / mentés nélkül      wq   mentés+kilépés
+  120        ugrás a 120. sorra           $   utolsó sor
+  s/régi/új/g       csere az aktuális soron (vagy a kijelölt sorokon)
+  %s/régi/új/gi     csere az egész fájlban (g = mind, i = kis/nagybetű mindegy)
+  10,20s/a/b/g      csere a 10–20. sorban       (\\1, \\g<0> visszahivatkozás)
+  g/minta/d   a mintára illő sorok törlése   v/minta/d  a nem illők törlése
+  sort  sort!  uniq      rendezés / fordítva / ismétlődő sorok törlése
+  upper  lower           kis/nagybetűsítés (kijelölés vagy sor)
+  !parancs   kijelölés átszűrése shell-parancson (pl. !sort -n), kijelölés
+             nélkül: a parancs futtatása és a kimenet megmutatása
+  r !parancs   a parancs kimenetének beszúrása a sor alá
+  e fájl     másik fájl megnyitása       set nu / set nonu   sorszámok
+"""
+
+
+class Editor:
+    def __init__(self, app, path):
+        self.app = app
+        self.path = path
+        self.enc, self.nl, self.trailing = "utf-8", "\n", True
+        self.lines = [""]
+        if path and os.path.exists(path):
+            self.lines, self.enc, self.nl, self.trailing = load_text(path)
+        self.cy = self.cx = self.top = self.left = self.want = 0
+        self.modified = False
+        self.undo, self.redo = [], []
+        self.typing = False
+        self.anchor = None
+        self.sticky = False
+        self.numbers = True
+        self.search = ""
+        self.last_cut = False
+        self.use_tabs = any(l.startswith("\t") for l in self.lines[:1000])
+        self.set_syntax()
+
+    def set_syntax(self):
+        ext = os.path.splitext(self.path or "")[1].lower()
+        self.ctok = COMMENTS.get(ext, "#")
+        self.hl = ext not in PLAIN
+
+    def dir(self):
+        return os.path.dirname(self.path) if self.path else self.app.browser.cwd
+
+    # ---- állapot
+    def push(self):
+        self.undo.append((self.lines[:], self.cy, self.cx))
+        if len(self.undo) > 400:
+            del self.undo[0]
+        self.redo.clear()
+
+    def begin(self, group=False):
+        if not (group and self.typing):
+            self.push()
+        self.typing = group
+        self.modified = True
+
+    def replace_sel_begin(self, group):
+        if self.anchor is not None:
+            self.push()
+            self.delete_sel()
+            self.typing = group
+            self.modified = True
+        else:
+            self.begin(group)
+
+    def clamp(self):
+        self.cy = max(0, min(self.cy, len(self.lines) - 1))
+        self.cx = max(0, min(self.cx, len(self.lines[self.cy])))
+
+    def set_want(self):
+        self.want = disp_col(self.lines[self.cy], self.cx)
+
+    def do_undo(self):
+        if not self.undo:
+            self.app.info("Nincs mit visszavonni")
+            return
+        self.redo.append((self.lines[:], self.cy, self.cx))
+        self.lines, self.cy, self.cx = self.undo.pop()
+        self.anchor = None
+        self.modified = True
+        self.clamp()
+
+    def do_redo(self):
+        if not self.redo:
+            self.app.info("Nincs mit újra végrehajtani")
+            return
+        self.undo.append((self.lines[:], self.cy, self.cx))
+        self.lines, self.cy, self.cx = self.redo.pop()
+        self.anchor = None
+        self.modified = True
+        self.clamp()
+
+    # ---- kijelölés
+    def sel_range(self):
+        if self.anchor is None:
+            return None
+        a, b = self.anchor, (self.cy, self.cx)
+        if a == b:
+            return None
+        return (a, b) if a < b else (b, a)
+
+    def sel_text(self, r):
+        (y1, x1), (y2, x2) = r
+        L = self.lines
+        if y1 == y2:
+            return L[y1][x1:x2]
+        return "\n".join([L[y1][x1:]] + L[y1 + 1:y2] + [L[y2][:x2]])
+
+    def delete_sel(self):
+        r = self.sel_range()
+        self.anchor = None
+        self.sticky = False
+        if not r:
+            return
+        (y1, x1), (y2, x2) = r
+        self.lines[y1:y2 + 1] = [self.lines[y1][:x1] + self.lines[y2][x2:]]
+        self.cy, self.cx = y1, x1
+        self.set_want()
+
+    def sel_lines(self, default_all):
+        r = self.sel_range()
+        if r:
+            (y1, _), (y2, x2) = r
+            if x2 == 0 and y2 > y1:
+                y2 -= 1
+            return y1, y2
+        if default_all:
+            return 0, len(self.lines) - 1
+        return self.cy, self.cy
+
+    def insert_text(self, text):
+        parts = text.split("\n")
+        line = self.lines[self.cy]
+        before, after = line[:self.cx], line[self.cx:]
+        if len(parts) == 1:
+            self.lines[self.cy] = before + text + after
+            self.cx += len(text)
+        else:
+            new = [before + parts[0]] + parts[1:-1] + [parts[-1] + after]
+            self.lines[self.cy:self.cy + 1] = new
+            self.cy += len(parts) - 1
+            self.cx = len(parts[-1])
+        self.set_want()
+
+    # ---- billentyűk
+    def handle(self, k):
+        if not (isinstance(k, str) or k in ENTER):
+            self.typing = False
+        cut_chain = False
+        if k in SHIFT_MOVES:
+            if self.anchor is None:
+                self.anchor = (self.cy, self.cx)
+                self.sticky = False
+            self.move(SHIFT_MOVES[k])
+        elif k in MOVES:
+            if self.anchor is not None and not self.sticky:
+                self.anchor = None
+            self.move(k)
+        elif isinstance(k, str):
+            self.insert_char(k)
+        elif k in ENTER:
+            self.newline()
+        elif k in BACKSPACE:
+            self.backspace()
+        elif k == curses.KEY_DC:
+            self.delete()
+        elif k == 9:
+            self.tab()
+        elif k == curses.KEY_BTAB:
+            self.indent(-1)
+        elif k == C("s"):
+            self.save()
+        elif k == C("o"):
+            self.save_as()
+        elif k in (C("q"), C("x")):
+            self.close()
+        elif k == C("f"):
+            self.find_prompt()
+        elif k in (C("n"), curses.KEY_F3):
+            self.find_next()
+        elif k == C("r"):
+            self.replace_prompt()
+        elif k == C("g"):
+            self.goto_prompt()
+        elif k in (C("p"), curses.KEY_F2):
+            c = self.app.prompt(":", "", self.app.cmd_history)
+            if c:
+                self.run_command(c)
+        elif k == C("z"):
+            self.do_undo()
+        elif k == C("y"):
+            self.do_redo()
+        elif k == C("b"):
+            if self.anchor is None:
+                self.anchor, self.sticky = (self.cy, self.cx), True
+                self.app.info("Kijelölés-mód: mozogj a nyilakkal, majd ^C / ^K")
+            else:
+                self.anchor, self.sticky = None, False
+        elif k == C("a"):
+            self.anchor, self.sticky = (0, 0), True
+            self.cy = len(self.lines) - 1
+            self.cx = len(self.lines[-1])
+        elif k == C("c"):
+            self.copy()
+        elif k == C("k"):
+            self.cut()
+            cut_chain = True
+        elif k in (C("v"), C("u")):
+            self.paste()
+        elif k == C("d"):
+            self.begin()
+            self.lines.insert(self.cy + 1, self.lines[self.cy])
+            self.cy += 1
+        elif k == C("l"):
+            self.numbers = not self.numbers
+        elif k == ESC:
+            self.anchor, self.sticky = None, False
+        elif k == curses.KEY_F1:
+            self.app.show_help(EDITOR_HELP_TEXT)
+        self.last_cut = cut_chain
+        self.clamp()
+
+    def move(self, k):
+        L = self.lines
+        page = max(1, self.app.text_height() - 1)
+        if k in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_PPAGE, curses.KEY_NPAGE):
+            d = {curses.KEY_UP: -1, curses.KEY_DOWN: 1,
+                 curses.KEY_PPAGE: -page, curses.KEY_NPAGE: page}[k]
+            self.cy = max(0, min(len(L) - 1, self.cy + d))
+            self.cx = idx_from_col(L[self.cy], self.want)
+            return
+        if k == curses.KEY_LEFT:
+            if self.cx > 0:
+                self.cx -= 1
+            elif self.cy > 0:
+                self.cy -= 1
+                self.cx = len(L[self.cy])
+        elif k == curses.KEY_RIGHT:
+            if self.cx < len(L[self.cy]):
+                self.cx += 1
+            elif self.cy < len(L) - 1:
+                self.cy += 1
+                self.cx = 0
+        elif k == curses.KEY_HOME:
+            line = L[self.cy]
+            ind = len(line) - len(line.lstrip(" \t"))
+            self.cx = 0 if self.cx == ind else ind
+        elif k == curses.KEY_END:
+            self.cx = len(L[self.cy])
+        self.set_want()
+
+    def insert_char(self, ch):
+        self.replace_sel_begin(True)
+        line = self.lines[self.cy]
+        self.lines[self.cy] = line[:self.cx] + ch + line[self.cx:]
+        self.cx += len(ch)
+        self.set_want()
+        if ch in " \t":
+            self.typing = False  # szavanként visszavonható
+
+    def newline(self):
+        self.replace_sel_begin(True)
+        pasting = self.app.input_pending()
+        line = self.lines[self.cy]
+        before, after = line[:self.cx], line[self.cx:]
+        indent = ""
+        if not pasting:
+            indent = re.match(r"[ \t]*", before).group(0)
+            if before.rstrip().endswith((":", "{", "(", "[")):
+                indent += "\t" if self.use_tabs else " " * TAB
+            after = after.lstrip(" \t")
+        self.lines[self.cy] = before
+        self.lines.insert(self.cy + 1, indent + after)
+        self.cy += 1
+        self.cx = len(indent)
+        self.set_want()
+
+    def backspace(self):
+        if self.anchor is not None and self.sel_range():
+            self.push()
+            self.delete_sel()
+            self.modified = True
+            return
+        self.anchor = None
+        if self.cx == 0 and self.cy == 0:
+            return
+        self.begin()
+        L = self.lines
+        if self.cx > 0:
+            line = L[self.cy]
+            n = 1
+            if not self.use_tabs and line[:self.cx].strip() == "" and self.cx % TAB == 0:
+                n = TAB
+            L[self.cy] = line[:self.cx - n] + line[self.cx:]
+            self.cx -= n
+        else:
+            self.cx = len(L[self.cy - 1])
+            L[self.cy - 1] += L[self.cy]
+            del L[self.cy]
+            self.cy -= 1
+        self.set_want()
+
+    def delete(self):
+        if self.anchor is not None and self.sel_range():
+            self.push()
+            self.delete_sel()
+            self.modified = True
+            return
+        self.anchor = None
+        L = self.lines
+        if self.cx < len(L[self.cy]):
+            self.begin()
+            L[self.cy] = L[self.cy][:self.cx] + L[self.cy][self.cx + 1:]
+        elif self.cy < len(L) - 1:
+            self.begin()
+            L[self.cy] += L[self.cy + 1]
+            del L[self.cy + 1]
+
+    def tab(self):
+        r = self.sel_range()
+        if r and r[0][0] != r[1][0]:
+            self.indent(1)
+            return
+        unit = "\t" if self.use_tabs else " " * (TAB - disp_col(self.lines[self.cy], self.cx) % TAB)
+        self.replace_sel_begin(True)
+        self.insert_text(unit)
+
+    def indent(self, d):
+        y1, y2 = self.sel_lines(False)
+        unit = "\t" if self.use_tabs else " " * TAB
+        self.begin()
+        for y in range(y1, y2 + 1):
+            line = self.lines[y]
+            if d > 0:
+                if line:
+                    self.lines[y] = unit + line
+            elif line.startswith("\t"):
+                self.lines[y] = line[1:]
+            else:
+                n = len(line) - len(line.lstrip(" "))
+                self.lines[y] = line[min(n, TAB):]
+        if self.anchor is not None:
+            self.anchor = (self.anchor[0], 0)
+            self.sticky = True
+
+    def copy(self):
+        r = self.sel_range()
+        if r:
+            self.app.set_clip(self.sel_text(r), False)
+            self.anchor, self.sticky = None, False
+            self.app.info("Kijelölés másolva")
+        else:
+            self.anchor = None
+            self.app.set_clip(self.lines[self.cy], True)
+            self.app.info("Sor másolva")
+
+    def cut(self):
+        r = self.sel_range()
+        if r:
+            self.push()
+            self.app.set_clip(self.sel_text(r), False)
+            self.delete_sel()
+            self.modified = True
+            return
+        self.anchor = None
+        self.push()
+        self.modified = True
+        line = self.lines.pop(self.cy)
+        if not self.lines:
+            self.lines.append("")
+        text, linewise = self.app.clip
+        if self.last_cut and linewise:
+            self.app.set_clip(text + "\n" + line, True)
+        else:
+            self.app.set_clip(line, True)
+
+    def paste(self):
+        text, linewise = self.app.clip
+        if not text and not linewise:
+            self.app.info("A vágólap üres")
+            return
+        if linewise and self.anchor is None:
+            self.begin()
+            new = text.split("\n")
+            self.lines[self.cy:self.cy] = new
+            self.cy += len(new)
+        else:
+            self.replace_sel_begin(False)
+            self.insert_text(text)
+
+    # ---- fájl
+    def save(self, path=None):
+        path = path or self.path
+        if not path:
+            path = self.app.prompt("Mentés ide (fájlnév): ")
+            if not path:
+                return False
+        path = os.path.expanduser(path)
+        if not os.path.isabs(path):
+            path = os.path.join(self.app.browser.cwd, path)
+        try:
+            save_text(path, self.lines, self.enc, self.nl, self.trailing)
+        except OSError as e:
+            self.app.error(f"Mentés sikertelen: {e.strerror or e}")
+            return False
+        if path != self.path:
+            self.path = path
+            self.set_syntax()
+        self.modified = False
+        self.typing = False
+        self.app.info(f"Mentve: {os.path.basename(path)} ({len(self.lines)} sor)")
+        return True
+
+    def save_as(self):
+        p = self.app.prompt("Mentés másként: ", self.path or "")
+        if p:
+            self.save(p)
+
+    def confirm_discard(self):
+        if not self.modified:
+            return True
+        a = self.app.ask("Mented a módosításokat? (i = igen, n = nem, Esc = mégse) ")
+        if a in ("i", "y"):
+            return self.save()
+        return a == "n"
+
+    def close(self, force=False):
+        if force or self.confirm_discard():
+            self.app.close_editor(self.path)
+
+    # ---- keresés / csere
+    def find_prompt(self):
+        t = self.app.prompt("Keresés: ", self.search)
+        if t is None:
+            return
+        self.search = t
+        if t:
+            self.find_from(self.cy, self.cx)
+
+    def find_next(self):
+        if not self.search:
+            self.find_prompt()
+        else:
+            self.find_from(self.cy, self.cx + 1)
+
+    def find_from(self, y, x):
+        t = self.search.lower()
+        n = len(self.lines)
+        for i in range(n + 1):
+            yy = (y + i) % n
+            j = self.lines[yy].lower().find(t, x if i == 0 else 0)
+            if j != -1:
+                if (yy, j) < (y, x):
+                    self.app.info("Körbeért, folytatás az elejéről")
+                self.cy, self.cx = yy, j
+                self.anchor = None
+                self.set_want()
+                self.center()
+                return True
+        self.app.error(f"Nincs találat: {self.search}")
+        return False
+
+    def center(self):
+        th = self.app.text_height()
+        if not (self.top <= self.cy < self.top + th):
+            self.top = max(0, self.cy - th // 2)
+
+    def replace_prompt(self):
+        pat = self.app.prompt("Csere – mit (regex): ", self.search)
+        if not pat:
+            return
+        rep = self.app.prompt(f"Csere – „{pat}” helyett: ")
+        if rep is None:
+            return
+        y1, y2 = self.sel_lines(True)
+        self.substitute(pat, rep, True, 0, y1, y2)
+
+    def substitute(self, pat, rep, glob, flags, y1, y2):
+        try:
+            rx = re.compile(pat, flags)
+        except re.error as e:
+            self.app.error(f"Hibás regex: {e}")
+            return
+        new = self.lines[y1:y2 + 1]
+        total = 0
+        try:
+            for i, line in enumerate(new):
+                s, n = rx.subn(rep, line, count=0 if glob else 1)
+                if n:
+                    new[i] = s
+                    total += n
+        except (re.error, IndexError) as e:
+            self.app.error(f"Hibás csere-minta: {e}")
+            return
+        if not total:
+            self.app.error(f"Nincs találat: {pat}")
+            return
+        self.begin()
+        self.lines[y1:y2 + 1] = "\n".join(new).split("\n")
+        self.anchor = None
+        self.clamp()
+        self.app.info(f"{total} csere")
+
+    def goto_prompt(self):
+        s = self.app.prompt("Ugrás sorra (sor vagy sor:oszlop): ")
+        if s:
+            self.goto(s)
+
+    def goto(self, s):
+        m = re.fullmatch(r"\s*(\d+|\$)\s*(?::\s*(\d+))?\s*", s)
+        if not m:
+            self.app.error("Adj meg egy sorszámot, pl. 120 vagy 120:5")
+            return
+        self.cy = len(self.lines) - 1 if m.group(1) == "$" else int(m.group(1)) - 1
+        self.clamp()
+        self.cx = int(m.group(2)) - 1 if m.group(2) else 0
+        self.anchor = None
+        self.clamp()
+        self.set_want()
+        self.center()
+
+    # ---- parancssor (vim ":")
+    def run_command(self, cmd):
+        app = self.app
+        cmd = cmd.strip().lstrip(":").strip()
+        if cmd in ("w", "write"):
+            self.save()
+        elif cmd.startswith("w ") or cmd.startswith("saveas "):
+            self.save(cmd.split(None, 1)[1])
+        elif cmd in ("q", "quit"):
+            self.close()
+        elif cmd == "q!":
+            self.close(force=True)
+        elif cmd in ("wq", "x"):
+            if self.save():
+                self.close(force=True)
+        elif re.fullmatch(r"\d+|\$", cmd):
+            self.goto(cmd)
+        elif cmd in ("set nu", "set number"):
+            self.numbers = True
+        elif cmd in ("set nonu", "set nonumber"):
+            self.numbers = False
+        elif cmd in ("help", "h"):
+            app.show_help(EDITOR_HELP_TEXT)
+        elif cmd.startswith("@"):
+            n = cmd[1:].strip()
+            app.play_macro(int(n) if n.isdigit() else 1)
+        elif cmd.startswith("e "):
+            path = os.path.expanduser(cmd[2:].strip())
+            if not os.path.isabs(path):
+                path = os.path.join(self.dir(), path)
+            if self.confirm_discard():
+                app.open_editor(path)
+        elif cmd in ("sort", "sort!", "uniq"):
+            y1, y2 = self.sel_lines(True)
+            part = self.lines[y1:y2 + 1]
+            if cmd == "uniq":
+                part = [l for i, l in enumerate(part) if i == 0 or l != part[i - 1]]
+            else:
+                part = sorted(part, key=str.casefold, reverse=cmd == "sort!")
+            self.begin()
+            self.lines[y1:y2 + 1] = part
+            self.anchor = None
+            app.info(f"{y2 - y1 + 1} sor feldolgozva")
+        elif cmd in ("upper", "lower"):
+            fn = str.upper if cmd == "upper" else str.lower
+            r = self.sel_range()
+            self.begin()
+            if r:
+                text = self.sel_text(r)
+                self.delete_sel()
+                self.insert_text(fn(text))
+            else:
+                self.lines[self.cy] = fn(self.lines[self.cy])
+        elif cmd.startswith("r !") or cmd.startswith("r!"):
+            out = self.shell_output(cmd.split("!", 1)[1], None)
+            if out is not None:
+                self.begin()
+                lines = out.split("\n")
+                self.lines[self.cy + 1:self.cy + 1] = lines
+                app.info(f"{len(lines)} sor beszúrva")
+        elif cmd.startswith("!"):
+            sh = cmd[1:].strip()
+            if self.sel_range():
+                y1, y2 = self.sel_lines(False)
+                out = self.shell_output(sh, "\n".join(self.lines[y1:y2 + 1]) + "\n")
+                if out is not None:
+                    self.begin()
+                    self.lines[y1:y2 + 1] = out.split("\n")
+                    self.anchor = None
+                    self.cy, self.cx = y1, 0
+            else:
+                app.shell(sh, self.dir())
+        elif self.try_substitute(cmd) or self.try_global(cmd):
+            pass
+        else:
+            app.error(f"Ismeretlen parancs: {cmd}   (F1 = súgó)")
+        self.clamp()
+
+    def shell_output(self, sh, inp):
+        try:
+            p = subprocess.run(sh, shell=True, input=inp, capture_output=True,
+                               text=True, cwd=self.dir(), timeout=120)
+        except subprocess.TimeoutExpired:
+            self.app.error("A parancs túl sokáig futott")
+            return None
+        if p.returncode != 0 and not p.stdout:
+            err = (p.stderr.strip().splitlines() or ["hiba"])[-1]
+            self.app.error(f"A parancs hibával tért vissza: {err}")
+            return None
+        out = p.stdout
+        return out[:-1] if out.endswith("\n") else out
+
+    def try_substitute(self, cmd):
+        m = re.fullmatch(r"(%|(\d+|\$),(\d+|\$))?s([^\w\s\\])(.*)", cmd, re.S)
+        if not m:
+            return False
+        parts = split_delim(m.group(5), m.group(4))
+        pat = parts[0] or re.escape(self.search)
+        rep = parts[1] if len(parts) > 1 else ""
+        fl = parts[2] if len(parts) > 2 else ""
+        last = len(self.lines)
+        if m.group(1) == "%":
+            y1, y2 = 0, last - 1
+        elif m.group(2):
+            conv = lambda v: last if v == "$" else int(v)
+            y1, y2 = conv(m.group(2)) - 1, conv(m.group(3)) - 1
+            y1, y2 = max(0, min(y1, y2)), min(last - 1, max(y1, y2))
+        else:
+            y1, y2 = self.sel_lines(False)
+        if not pat:
+            self.app.error("Üres keresési minta")
+            return True
+        self.substitute(pat, rep, "g" in fl, re.I if "i" in fl else 0, y1, y2)
+        return True
+
+    def try_global(self, cmd):
+        if len(cmd) < 3 or cmd[0] not in "gv" or cmd[1].isalnum() or cmd[1].isspace():
+            return False
+        parts = split_delim(cmd[2:], cmd[1])
+        if len(parts) < 2 or parts[1].strip() != "d":
+            self.app.error("Formátum: g/minta/d vagy v/minta/d")
+            return True
+        try:
+            rx = re.compile(parts[0])
+        except re.error as e:
+            self.app.error(f"Hibás regex: {e}")
+            return True
+        keep_match = cmd[0] == "v"
+        y1, y2 = self.sel_lines(True)
+        part = self.lines[y1:y2 + 1]
+        kept = [l for l in part if bool(rx.search(l)) == keep_match]
+        removed = len(part) - len(kept)
+        if removed:
+            self.begin()
+            self.lines[y1:y2 + 1] = kept
+            if not self.lines:
+                self.lines = [""]
+            self.anchor = None
+        self.app.info(f"{removed} sor törölve")
+        return True
+
+    # ---- rajzolás
+    def draw(self, scr, h, w):
+        th = h - 4
+        L = self.lines
+        gutter = len(str(len(L))) + 1 if self.numbers else 0
+        tw = max(1, w - gutter)
+        if self.cy < self.top:
+            self.top = self.cy
+        elif self.cy >= self.top + th:
+            self.top = self.cy - th + 1
+        dc = disp_col(L[self.cy], self.cx)
+        if dc < self.left:
+            self.left = dc
+        elif dc >= self.left + tw:
+            self.left = dc - tw + 1
+        sel = self.sel_range()
+        term = self.search.lower()
+        for r in range(th):
+            y = self.top + r
+            row = 1 + r
+            if y >= len(L):
+                put(scr, row, 0, "~", A["ln"])
+                continue
+            if self.numbers:
+                put(scr, row, 0, f"{y + 1:>{gutter - 1}} ", A["ln"])
+            line = L[y]
+            attrs = highlight(line, self.ctok) if self.hl else [0] * len(line)
+            if term:
+                low = line.lower()
+                j = low.find(term)
+                while j != -1:
+                    for i in range(j, min(j + len(term), len(attrs))):
+                        attrs[i] = A["match"]
+                    j = low.find(term, j + len(term))
+            if sel and sel[0][0] <= y <= sel[1][0]:
+                s = sel[0][1] if y == sel[0][0] else 0
+                e = sel[1][1] if y == sel[1][0] else len(line)
+                for i in range(s, e):
+                    attrs[i] = curses.A_REVERSE
+            cells = []
+            for ch, at in zip(line, attrs):
+                if ch == "\t":
+                    cells += [(" ", at)] * (TAB - len(cells) % TAB)
+                else:
+                    cells.append((ch if ch >= " " else "·", at))
+                if len(cells) > self.left + tw:
+                    break
+            cells = cells[self.left:self.left + tw]
+            x = gutter
+            i = 0
+            while i < len(cells):
+                at = cells[i][1]
+                j = i
+                while j < len(cells) and cells[j][1] == at:
+                    j += 1
+                put(scr, row, x, "".join(c for c, _ in cells[i:j]), at)
+                x += j - i
+                i = j
+            if sel and sel[0][0] <= y < sel[1][0] and len(cells) < tw and \
+                    disp_col(line, len(line)) >= self.left:
+                put(scr, row, x, " ", curses.A_REVERSE)
+        name = self.path or "[új fájl]"
+        if self.path and self.path.startswith(os.path.expanduser("~")):
+            name = "~" + self.path[len(os.path.expanduser("~")):]
+        left = f" nanger │ {name}{'  [módosítva]' if self.modified else ''}"
+        right = (("● FELVÉTEL  " if self.app.recording is not None else "") +
+                 f"{self.cy + 1}:{self.cx + 1}  {len(L)} sor  {self.enc} ")
+        put(scr, 0, 0, " " * w, A["title"])
+        put(scr, 0, 0, left[: max(0, w - len(right) - 1)], A["title"])
+        put(scr, 0, max(0, w - len(right)), right, A["title"])
+        draw_help(scr, h - 2, EDITOR_HELP1, w)
+        draw_help(scr, h - 1, EDITOR_HELP2, w)
+        return (1 + self.cy - self.top, gutter + dc - self.left)
+
+
+# ---------------------------------------------------------- fájlkezelő
+
+BROWSER_HELP1 = [("Enter", "Megnyit"), ("←", "Vissza"), ("n", "Új fájl"), ("N", "Új mappa"),
+                 ("r", "Átnevez"), ("D", "Töröl"), ("/", "Keres"), ("q", "Kilép")]
+BROWSER_HELP2 = [("Szóköz", "Jelöl"), ("y", "Másol"), ("x", "Kivág"), ("p", "Beilleszt"),
+                 (".", "Rejtett"), ("c", "Ugrás"), ("S", "Shell"), ("?", "Súgó")]
+
+BROWSER_HELP_TEXT = """\
+nanger — FÁJLKEZELŐ                                (bármely billentyű: vissza)
+
+MOZGÁS (nyilak vagy vim-billentyűk)
+  ↑ ↓  vagy  k j        fel / le          PgUp PgDn   lapozás
+  ←    vagy  h  vagy Backspace   szülő mappa
+  →    vagy  l  vagy Enter       mappába lépés / fájl szerkesztése
+  g / G   lista eleje / vége              ~   saját mappa (home)
+  c       ugrás egy beírt elérési útra    /   keresés név alapján
+  .       rejtett fájlok mutatása / elrejtése
+
+FÁJLMŰVELETEK
+  e       fájl szerkesztése              n   új fájl      N   új mappa
+  r       átnevezés                      D   (vagy Delete) törlés megerősítéssel
+  Szóköz  fájl megjelölése (több fájl egyszerre)
+  y       megjelöltek (vagy az aktuális) másolása a vágólapra
+  x       kivágás                        p   beillesztés az aktuális mappába
+  Esc     jelölések törlése
+
+EGYÉB
+  S       shell nyitása ebben a mappában (exit = vissza)
+  !       egy parancs futtatása ebben a mappában
+  F5 / F6 makró felvétele / lejátszása   q   kilépés
+"""
+
+
+class Browser:
+    def __init__(self, app, path):
+        self.app = app
+        self.cwd = os.path.abspath(os.path.expanduser(path))
+        self.hidden = False
+        self.sel = self.top = 0
+        self.entries = []
+        self.tagged = set()
+        self.marked = None  # (útvonalak, "copy" | "cut")
+        self.last_search = ""
+        self._pv_key = None
+        self._pv = []
+        self.refresh()
+
+    def listdir(self, d):
+        try:
+            names = os.listdir(d)
+        except OSError:
+            return None
+        if not self.hidden:
+            names = [n for n in names if not n.startswith(".")]
+        return sorted(names, key=lambda n: (not os.path.isdir(os.path.join(d, n)), n.casefold()))
+
+    def refresh(self, select=None):
+        e = self.listdir(self.cwd)
+        if e is None:
+            self.app.error("A mappa nem olvasható")
+            e = []
+        self.entries = e
+        if select in e:
+            self.sel = e.index(select)
+        self.sel = max(0, min(self.sel, len(e) - 1))
+        self._pv_key = None
+
+    def cd(self, path, select=None):
+        path = os.path.abspath(os.path.expanduser(path))
+        if not os.path.isdir(path):
+            self.app.error(f"Nem mappa: {path}")
+            return
+        try:
+            os.listdir(path)
+        except OSError as e:
+            self.app.error(f"Nem nyitható meg: {e.strerror}")
+            return
+        self.cwd = path
+        self.sel = self.top = 0
+        self.refresh(select)
+
+    def current(self):
+        if not self.entries:
+            return None
+        return os.path.join(self.cwd, self.entries[self.sel])
+
+    def targets(self):
+        if self.tagged:
+            return sorted(self.tagged)
+        cur = self.current()
+        return [cur] if cur else []
+
+    def handle(self, k):
+        app = self.app
+        n = len(self.entries)
+        cur = self.current()
+        page = max(1, app.text_height() - 1)
+        if k in (curses.KEY_UP, "k"):
+            self.sel = max(0, self.sel - 1)
+        elif k in (curses.KEY_DOWN, "j"):
+            self.sel = min(max(0, n - 1), self.sel + 1)
+        elif k == curses.KEY_PPAGE:
+            self.sel = max(0, self.sel - page)
+        elif k == curses.KEY_NPAGE:
+            self.sel = min(max(0, n - 1), self.sel + page)
+        elif k in (curses.KEY_HOME, "g"):
+            self.sel = 0
+        elif k in (curses.KEY_END, "G"):
+            self.sel = max(0, n - 1)
+        elif k in (curses.KEY_LEFT, "h") or k in BACKSPACE:
+            parent = os.path.dirname(self.cwd)
+            if parent != self.cwd:
+                self.cd(parent, os.path.basename(self.cwd))
+        elif k in (curses.KEY_RIGHT, "l") or k in ENTER:
+            if cur and os.path.isdir(cur):
+                self.cd(cur)
+            elif cur:
+                app.open_editor(cur)
+        elif k == "e":
+            if cur and not os.path.isdir(cur):
+                app.open_editor(cur)
+        elif k == "n":
+            name = app.prompt("Új fájl neve: ")
+            if name:
+                app.open_editor(os.path.join(self.cwd, os.path.expanduser(name)))
+        elif k == "N":
+            name = app.prompt("Új mappa neve: ")
+            if name:
+                try:
+                    os.makedirs(os.path.join(self.cwd, name))
+                    self.refresh(name.split("/")[0])
+                except OSError as e:
+                    app.error(f"Nem sikerült: {e.strerror}")
+        elif k == "r":
+            if cur:
+                old = os.path.basename(cur)
+                name = app.prompt("Átnevezés: ", old)
+                if name and name != old:
+                    dst = os.path.join(self.cwd, name)
+                    if os.path.lexists(dst):
+                        app.error("Már létezik ilyen nevű elem")
+                    else:
+                        try:
+                            os.rename(cur, dst)
+                            self.tagged.discard(cur)
+                            self.refresh(name)
+                        except OSError as e:
+                            app.error(f"Nem sikerült: {e.strerror}")
+        elif k in ("D", curses.KEY_DC):
+            self.delete()
+        elif k == " ":
+            if cur:
+                self.tagged ^= {cur}
+                self.sel = min(max(0, n - 1), self.sel + 1)
+        elif k == ESC:
+            self.tagged.clear()
+        elif k in ("y", "x"):
+            t = self.targets()
+            if t:
+                self.marked = (t, "copy" if k == "y" else "cut")
+                self.tagged.clear()
+                verb = "másolásra" if k == "y" else "kivágásra"
+                app.info(f"{len(t)} elem kijelölve {verb} — menj a célmappába és nyomd meg: p")
+        elif k == "p":
+            self.paste()
+        elif k == ".":
+            self.hidden = not self.hidden
+            self.refresh(os.path.basename(cur) if cur else None)
+        elif k == "/":
+            t = app.prompt("Keresés név alapján: ", self.last_search)
+            if t:
+                self.last_search = t
+                low = t.casefold()
+                for i in range(1, n + 1):
+                    j = (self.sel + i) % n
+                    if low in self.entries[j].casefold():
+                        self.sel = j
+                        break
+                else:
+                    app.error(f"Nincs találat: {t}")
+        elif k == "c":
+            p = app.prompt("Ugrás ide: ", self.cwd)
+            if p:
+                self.cd(p if os.path.isabs(os.path.expanduser(p)) else os.path.join(self.cwd, p))
+        elif k == "~":
+            self.cd(os.path.expanduser("~"))
+        elif k == "S":
+            app.shell(None, self.cwd)
+            self.refresh(os.path.basename(cur) if cur else None)
+        elif k == "!":
+            c = app.prompt("Parancs: ", "", app.cmd_history)
+            if c:
+                app.shell(c, self.cwd)
+                self.refresh(os.path.basename(cur) if cur else None)
+        elif k in ("q", C("q")):
+            app.running = False
+        elif k in ("?", curses.KEY_F1):
+            app.show_help(BROWSER_HELP_TEXT)
+
+    def delete(self):
+        t = self.targets()
+        if not t:
+            return
+        label = os.path.basename(t[0]) + ("/" if os.path.isdir(t[0]) else "")
+        if len(t) > 1:
+            label = f"{len(t)} elemet"
+        a = self.app.ask(f"Biztosan törlöd: {label}? (i = igen, n = nem) ")
+        if a not in ("i", "y"):
+            self.app.info("Törlés megszakítva")
+            return
+        for p in t:
+            try:
+                if os.path.isdir(p) and not os.path.islink(p):
+                    shutil.rmtree(p)
+                else:
+                    os.remove(p)
+            except OSError as e:
+                self.app.error(f"Nem törölhető: {os.path.basename(p)} ({e.strerror})")
+                break
+        else:
+            self.app.info(f"Törölve: {label}")
+        self.tagged.clear()
+        self.refresh()
+
+    def paste(self):
+        if not self.marked:
+            self.app.error("Nincs mit beilleszteni (y = másol, x = kivág)")
+            return
+        paths, mode = self.marked
+        last = None
+        for src in paths:
+            if not os.path.lexists(src):
+                continue
+            if mode == "cut" and os.path.dirname(src) == self.cwd:
+                continue
+            if os.path.isdir(src) and (self.cwd + os.sep).startswith(src + os.sep):
+                self.app.error("Mappa nem másolható önmagába")
+                continue
+            dst = unique_path(os.path.join(self.cwd, os.path.basename(src)))
+            try:
+                if mode == "cut":
+                    shutil.move(src, dst)
+                elif os.path.isdir(src) and not os.path.islink(src):
+                    shutil.copytree(src, dst, symlinks=True)
+                else:
+                    shutil.copy2(src, dst, follow_symlinks=False)
+                last = os.path.basename(dst)
+            except OSError as e:
+                self.app.error(f"Hiba: {os.path.basename(src)} ({e.strerror or e})")
+                break
+        if mode == "cut":
+            self.marked = None
+        self.refresh(last)
+        if last:
+            self.app.info("Beillesztve")
+
+    # ---- rajzolás
+    def entry_attr(self, p):
+        if os.path.islink(p):
+            return A["link"]
+        if os.path.isdir(p):
+            return A["dir"]
+        if os.access(p, os.X_OK):
+            return A["exe"]
+        return 0
+
+    def draw_list(self, scr, x, width, d, ents, sel, top, th, active):
+        for r in range(th):
+            i = top + r
+            if i >= len(ents):
+                break
+            name = ents[i]
+            p = os.path.join(d, name)
+            isdir = os.path.isdir(p)
+            attr = self.entry_attr(p)
+            mark = "*" if p in self.tagged else " "
+            if p in self.tagged:
+                attr = A["tag"]
+            label = mark + clean(name) + ("/" if isdir else "")
+            size = ""
+            if active and not isdir:
+                try:
+                    size = human(os.lstat(p).st_size) + " "
+                except OSError:
+                    pass
+            room = width - len(size)
+            text = (label[:room].ljust(room) + size) if room > 4 else label[:width].ljust(width)
+            if i == sel:
+                attr |= curses.A_REVERSE
+            put(scr, 1 + r, x, text, attr)
+
+    def preview(self, p, th):
+        try:
+            st = os.stat(p)
+        except OSError:
+            return [("[nem elérhető]", A["err"])]
+        key = (p, st.st_mtime, th, self.hidden)
+        if key == self._pv_key:
+            return self._pv
+        if os.path.isdir(p):
+            ents = self.listdir(p)
+            if ents is None:
+                out = [("[nincs jogosultság]", A["err"])]
+            elif not ents:
+                out = [("(üres mappa)", A["ln"])]
+            else:
+                out = [(" " + clean(e) + ("/" if os.path.isdir(os.path.join(p, e)) else ""),
+                        self.entry_attr(os.path.join(p, e))) for e in ents[:th]]
+        else:
+            try:
+                with open(p, "rb") as f:
+                    data = f.read(64 * 1024)
+                if b"\0" in data[:8192]:
+                    out = [(f"[bináris fájl, {human(st.st_size)}]", A["ln"])]
+                else:
+                    text = data.decode("utf-8", errors="replace").replace("\r", "")
+                    out = [(clean(l.expandtabs(TAB)), 0) for l in text.split("\n")[:th]]
+                    if not data:
+                        out = [("(üres fájl)", A["ln"])]
+            except OSError as e:
+                out = [(f"[nem olvasható: {e.strerror}]", A["err"])]
+        self._pv_key, self._pv = key, out
+        return out
+
+    def draw(self, scr, h, w):
+        th = h - 4
+        n = len(self.entries)
+        if self.sel < self.top:
+            self.top = self.sel
+        elif self.sel >= self.top + th:
+            self.top = self.sel - th + 1
+        w1 = max(10, w // 6)
+        w2 = max(20, (w * 2) // 5)
+        w3 = w - w1 - w2 - 2
+        home = os.path.expanduser("~")
+        shown = "~" + self.cwd[len(home):] if self.cwd.startswith(home) else self.cwd
+        put(scr, 0, 0, " " * w, A["title"])
+        put(scr, 0, 0, f" nanger │ {shown}", A["title"])
+        parent = os.path.dirname(self.cwd)
+        if parent != self.cwd:
+            pents = self.listdir(parent) or []
+            base = os.path.basename(self.cwd)
+            pidx = pents.index(base) if base in pents else 0
+            ptop = max(0, min(pidx - th // 2, len(pents) - th))
+            self.draw_list(scr, 0, w1, parent, pents, pidx, ptop, th, False)
+        for r in range(th):
+            put(scr, 1 + r, w1, "│", A["ln"])
+            put(scr, 1 + r, w1 + 1 + w2, "│", A["ln"])
+        if n:
+            self.draw_list(scr, w1 + 1, w2, self.cwd, self.entries, self.sel, self.top, th, True)
+            if w3 > 3:
+                for r, (text, at) in enumerate(self.preview(self.current(), th)):
+                    put(scr, 1 + r, w1 + w2 + 2, text[:w3], at)
+        else:
+            put(scr, 1, w1 + 2, "(üres mappa — n: új fájl)", A["ln"])
+        if not self.app.msg and n:
+            cur = self.current()
+            try:
+                st = os.lstat(cur)
+                import stat as _st
+                import time as _t
+                info = (f" {_st.filemode(st.st_mode)}  {human(st.st_size)}  "
+                        f"{_t.strftime('%Y-%m-%d %H:%M', _t.localtime(st.st_mtime))}"
+                        f"   {self.sel + 1}/{n}")
+                if self.tagged:
+                    info += f"   {len(self.tagged)} megjelölve"
+                if self.marked:
+                    info += f"   vágólapon: {len(self.marked[0])}"
+                put(scr, h - 3, 0, info, A["ln"])
+            except OSError:
+                pass
+        draw_help(scr, h - 2, BROWSER_HELP1, w)
+        draw_help(scr, h - 1, BROWSER_HELP2, w)
+        return None
+
+
+# ---------------------------------------------------------- alkalmazás
+
+class App:
+    def __init__(self, scr, target):
+        self.scr = scr
+        self.msg = ""
+        self.msg_err = False
+        self.clip = ("", False)
+        self.running = True
+        self.queue = deque()
+        self.recording = None
+        self.macro = []
+        self.cmd_history = []
+        self.editor = None
+        self.only_file = False
+        target = os.path.abspath(os.path.expanduser(target))
+        if os.path.isdir(target):
+            self.browser = Browser(self, target)
+        else:
+            d = os.path.dirname(target)
+            self.browser = Browser(self, d if os.path.isdir(d) else os.getcwd())
+            self.only_file = True
+            self.open_editor(target)
+            if self.editor is None:
+                self.only_file = False
+
+    # ---- üzenetek
+    def info(self, m):
+        self.msg, self.msg_err = m, False
+
+    def error(self, m):
+        self.msg, self.msg_err = m, True
+        curses.beep()
+
+    def text_height(self):
+        return self.scr.getmaxyx()[0] - 4
+
+    def input_pending(self):
+        try:
+            return bool(select.select([sys.stdin], [], [], 0)[0])
+        except (OSError, ValueError):
+            return False
+
+    def set_clip(self, text, linewise):
+        self.clip = (text, linewise)
+        set_system_clipboard(text)
+
+    # ---- nézetek
+    def open_editor(self, path):
+        try:
+            self.editor = Editor(self, path)
+        except (ValueError, OSError) as e:
+            self.error(f"Nem nyitható meg: {getattr(e, 'strerror', None) or e}")
+
+    def close_editor(self, path):
+        self.editor = None
+        if self.only_file:
+            self.running = False
+            return
+        if path and os.path.dirname(path) == self.browser.cwd:
+            self.browser.refresh(os.path.basename(path))
+        else:
+            self.browser.refresh()
+
+    # ---- billentyűzet
+    def getkey(self):
+        if self.queue:
+            return self.queue.popleft()
+        try:
+            k = self.scr.get_wch()
+        except curses.error:
+            return None
+        except KeyboardInterrupt:
+            return C("c")
+        if isinstance(k, str) and len(k) == 1 and (ord(k) < 32 or ord(k) == 127):
+            k = ord(k)
+        if k == ESC:
+            k = self.decode_escape()
+        if self.recording is not None and k not in (curses.KEY_F5, curses.KEY_F6,
+                                                    curses.KEY_RESIZE):
+            self.recording.append(k)
+        return k
+
+    def decode_escape(self):
+        """Olyan escape-szekvenciák felismerése, amelyeket a terminfo nem ismer
+        (pl. tmux / egyes terminálok a CSI-formát küldik)."""
+        self.scr.nodelay(True)
+        seq = ""
+        try:
+            for _ in range(8):
+                try:
+                    ch = self.scr.get_wch()
+                except curses.error:
+                    break
+                if not isinstance(ch, str):
+                    break
+                seq += ch
+                if ch.isalpha() or ch == "~":
+                    break
+        finally:
+            self.scr.nodelay(False)
+        if not seq:
+            return ESC
+        return ESCAPES.get(seq, ESC)
+
+    def play_macro(self, times=1):
+        if self.recording is not None:
+            self.error("Felvétel közben nem játszható le (F5 = leállítás)")
+        elif not self.macro:
+            self.error("Nincs rögzített makró (F5 = felvétel)")
+        else:
+            self.queue.extend(self.macro * max(1, min(times, 10000)))
+
+    def run(self):
+        while self.running:
+            if not self.queue:
+                self.draw()
+            k = self.getkey()
+            if k is None or k == curses.KEY_RESIZE:
+                continue
+            self.msg = ""
+            if k == curses.KEY_F5:
+                if self.recording is None:
+                    self.recording = []
+                    self.info("Makró felvétel… (F5 = leállítás)")
+                else:
+                    self.macro, self.recording = self.recording, None
+                    self.info(f"Makró rögzítve ({len(self.macro)} billentyű) — F6 = lejátszás")
+            elif k == curses.KEY_F6:
+                self.play_macro()
+            else:
+                (self.editor or self.browser).handle(k)
+
+    # ---- képernyő
+    def draw(self, overlay=None):
+        scr = self.scr
+        scr.erase()
+        h, w = scr.getmaxyx()
+        if h < 8 or w < 30:
+            put(scr, 0, 0, "Túl kicsi az ablak")
+            scr.refresh()
+            return
+        cursor = (self.editor or self.browser).draw(scr, h, w)
+        if overlay:
+            text, cur = overlay
+            start = max(0, cur - (w - 2))
+            put(scr, h - 3, 0, " " * (w - 1))
+            put(scr, h - 3, 0, text[start:start + w - 1], curses.A_BOLD)
+            cursor = (h - 3, cur - start)
+        elif self.msg:
+            put(scr, h - 3, 0, " " * (w - 1))
+            put(scr, h - 3, 0, self.msg[: w - 1], A["err"] if self.msg_err else curses.A_BOLD)
+        try:
+            if cursor:
+                curses.curs_set(1)
+                scr.move(max(0, min(cursor[0], h - 1)), max(0, min(cursor[1], w - 1)))
+            else:
+                curses.curs_set(0)
+        except curses.error:
+            pass
+        scr.refresh()
+
+    def prompt(self, label, default="", history=None):
+        buf = list(default)
+        pos = len(buf)
+        hi = len(history) if history is not None else 0
+        while True:
+            if not self.queue:
+                self.draw(overlay=(label + "".join(buf), len(label) + pos))
+            k = self.getkey()
+            if k is None or k == curses.KEY_RESIZE:
+                continue
+            if k in ENTER:
+                res = "".join(buf)
+                if history is not None and res and (not history or history[-1] != res):
+                    history.append(res)
+                self.msg = ""
+                return res
+            if k in (ESC, C("c"), C("q")):
+                self.msg = ""
+                return None
+            if k in BACKSPACE:
+                if pos:
+                    del buf[pos - 1]
+                    pos -= 1
+            elif k == curses.KEY_DC:
+                if pos < len(buf):
+                    del buf[pos]
+            elif k == curses.KEY_LEFT:
+                pos = max(0, pos - 1)
+            elif k == curses.KEY_RIGHT:
+                pos = min(len(buf), pos + 1)
+            elif k in (curses.KEY_HOME, C("a")):
+                pos = 0
+            elif k in (curses.KEY_END, C("e")):
+                pos = len(buf)
+            elif k == C("u"):
+                buf, pos = [], 0
+            elif k in (curses.KEY_UP, curses.KEY_DOWN) and history:
+                hi = max(0, hi - 1) if k == curses.KEY_UP else min(len(history), hi + 1)
+                buf = list(history[hi]) if hi < len(history) else []
+                pos = len(buf)
+            elif isinstance(k, str):
+                buf[pos:pos] = list(k)
+                pos += len(k)
+
+    def ask(self, label):
+        while True:
+            if not self.queue:
+                self.draw(overlay=(label, len(label)))
+            k = self.getkey()
+            if k is None or k == curses.KEY_RESIZE:
+                continue
+            self.msg = ""
+            if isinstance(k, str):
+                return k.lower()
+            return None
+
+    def show_help(self, text):
+        lines = text.split("\n")
+        top = 0
+        while True:
+            scr = self.scr
+            scr.erase()
+            h, w = scr.getmaxyx()
+            for r, line in enumerate(lines[top:top + h]):
+                put(scr, r, 0, line, curses.A_BOLD if line[:1].isupper() else 0)
+            try:
+                curses.curs_set(0)
+            except curses.error:
+                pass
+            scr.refresh()
+            k = self.getkey()
+            if k in (curses.KEY_DOWN, "j", curses.KEY_NPAGE):
+                top = min(max(0, len(lines) - h), top + (1 if k != curses.KEY_NPAGE else h))
+            elif k in (curses.KEY_UP, "k", curses.KEY_PPAGE):
+                top = max(0, top - (1 if k != curses.KEY_PPAGE else h))
+            elif k not in (None, curses.KEY_RESIZE):
+                return
+
+    def shell(self, cmd, cwd):
+        curses.def_prog_mode()
+        curses.endwin()
+        try:
+            if cmd:
+                print(f"$ {cmd}", flush=True)
+                subprocess.call(cmd, shell=True, cwd=cwd)
+                input("\n[Enter = vissza a nangerbe] ")
+            else:
+                sh = os.environ.get("SHELL", "/bin/sh")
+                print("nanger: shell ebben a mappában — írd be: exit a visszatéréshez", flush=True)
+                subprocess.call([sh], cwd=cwd)
+        except (KeyboardInterrupt, EOFError):
+            pass
+        curses.reset_prog_mode()
+        self.scr.clear()
+        self.scr.refresh()
+
+
+USAGE = f"""nanger {VERSION} — fájlkezelő és szerkesztő (ranger + nano + vim)
+
+Használat:
+  nanger              fájlkezelő az aktuális mappában
+  nanger MAPPA        fájlkezelő a megadott mappában
+  nanger FÁJL         a fájl azonnali szerkesztése
+
+  -h, --help          ez a súgó
+  -v, --version       verzió
+
+A programon belül F1 (szerkesztő) vagy ? (fájlkezelő) mutatja a billentyűket.
+"""
+
+
+def main():
+    args = sys.argv[1:]
+    if args and args[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
+    if args and args[0] in ("-v", "--version"):
+        print(f"nanger {VERSION}")
+        return 0
+    if len(args) > 1:
+        print("Egyszerre egy mappát vagy fájlt adj meg.\n\n" + USAGE, file=sys.stderr)
+        return 2
+    target = args[0] if args else "."
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        print("nanger: terminálban kell futtatni", file=sys.stderr)
+        return 1
+
+    def run(scr):
+        curses.raw()
+        curses.noecho()
+        scr.keypad(True)
+        init_colors()
+        App(scr, target).run()
+
+    curses.wrapper(run)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

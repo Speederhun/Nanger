@@ -1,0 +1,34 @@
+# Minden "v*" címke (pl. v1.0.0) feltöltésekor megépíti a .deb-et és
+# a forrás-csomagot, majd GitHub Release-ként közzéteszi őket.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Szintaxis-ellenőrzés
+        run: python3 -m py_compile nanger
+
+      - name: .deb építése
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sh packaging/debian/build-deb.sh "$VERSION"
+          git archive --format=tar.gz --prefix="nanger-$VERSION/" \
+            -o "dist/nanger-$VERSION.tar.gz" "$GITHUB_REF_NAME"
+
+      - name: Release közzététele
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "nanger ${GITHUB_REF_NAME#v}" \
+            --notes "Telepítés: lásd a README-t."
