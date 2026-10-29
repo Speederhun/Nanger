@@ -108,6 +108,10 @@ MOVING (arrows or vim keys)
   Right or  l  or Enter       enter a folder / open a file by its type
   g / G   top / bottom of the list          ~   home folder
   c       jump to a typed path              /   search by name
+  Space   mark    a   mark / unmark all    A   invert the marks
+  Z   pack the marked files (or the current one) into .7z / .zip / .tar.gz
+  U   extract the archive(s) into a folder of the same name
+  i   size of the marked items / current folder
   . or zh   show / hide hidden files
   mouse   click select, double-click open, wheel scroll, right-click or the side "back"
           button = previous folder (forward button = next), drag in the editor to select
@@ -153,6 +157,10 @@ MOZGÁS (nyilak vagy vim-billentyűk)
   →    vagy  l  vagy Enter       mappába lépés / fájl megnyitása típus szerint
   g / G   lista eleje / vége              ~   saját mappa (home)
   c       ugrás egy beírt elérési útra    /   keresés név alapján
+  Szóköz  jelöl    a   mind kijelöl / törli    A   kijelölés megfordítása
+  Z   a kijelöltek (vagy az aktuális) becsomagolása .7z / .zip / .tar.gz-be
+  U   archívum kicsomagolása a nevével azonos mappába
+  i   a kijelöltek / az aktuális mappa mérete
   . vagy zh   rejtett fájlok mutatása / elrejtése
   egér    kattintás kijelöl, dupla kattintás megnyit, görgő lapoz, jobb gomb vagy az oldalsó
           „vissza” gomb = előző mappa (előre gomb = következő), szerkesztőben húzás = kijelölés

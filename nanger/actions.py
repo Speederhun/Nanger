@@ -13,6 +13,8 @@ BROWSER = [
     ("Go to: ", "c"), ("Set bookmark", "m"), ("Jump to bookmark", "'"),
     ("Sort", "s"), ("Hidden files", "."), ("View", "v"), ("External", "o"),
     ("Open files", "b"), ("Shell", "S"), ("Command", "!"), ("Quit", "q"), ("Help", "?"),
+    ("Compress", "Z"), ("Extract", "U"), ("Folder size", "i"), ("Select all", "a"),
+    ("Invert selection", "A"),
 ]
 EDITOR = [
     ("Save", "ctrl-s"), ("Save as: ", "ctrl-o"), ("Close", "ctrl-q"), ("Find", "ctrl-f"),
@@ -56,7 +58,8 @@ def keymap_from(mode, binds):
         if b is not None and b != d:
             km[b] = d[0]
     for b, d in zip(binds, ds):
-        if b != d and d not in km:
+        # the old key stops working, unless it is the first key of a new two-key sequence
+        if b != d and d not in km and not any(x and x[:1] == d for x in binds):
             km[d] = NOOP
     return km
 

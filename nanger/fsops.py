@@ -193,3 +193,39 @@ def apply_renames(directory, pairs):
                     pass
         raise
     return len(pairs)
+
+
+# ------------------------------------------------------------------ sizes
+
+def tree_size(path, budget=10.0):
+    """Recursive size of a file or folder (symlinks are not followed).
+    -> (bytes, files, folders, complete); `complete` is False when the time budget ran out."""
+    deadline = time.time() + budget
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return 0, 0, 0, True
+    import stat as _st
+    if not _st.S_ISDIR(st.st_mode):
+        return st.st_size, 1, 0, True
+    total = files = dirs = 0
+    stack = [path]
+    while stack:
+        if time.time() > deadline:
+            return total, files, dirs, False
+        d = stack.pop()
+        try:
+            with os.scandir(d) as it:
+                for e in it:
+                    try:
+                        if e.is_dir(follow_symlinks=False):
+                            dirs += 1
+                            stack.append(e.path)
+                        else:
+                            files += 1
+                            total += e.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return total, files, dirs, True

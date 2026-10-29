@@ -939,3 +939,85 @@ def test_mouse_drag_selects_text_in_editor(spawn, work):
     t.send("\x7f", 0.3)                 # Backspace törli a kijelölést
     t.send(CTRL("s"))
     assert (work / "t.txt").read_text() == "abghij\n"
+
+
+def test_select_all_status_and_folder_size(spawn, work):
+    (work / "a.txt").write_text("x" * 1000)
+    (work / "dir").mkdir()
+    (work / "dir" / "b.bin").write_bytes(b"y" * 3000)
+    (work / "c.txt").write_text("z" * 500)
+    t = spawn(".")
+    assert "2 fájl, 1 mappa" in t.row(ROWS - 3)             # jobb alsó sor
+    t.send("a")                                              # összes kijelölése
+    assert "3 kijelölve, 4.4K" in t.row(ROWS - 3)            # 1000 + 3000 + 500 (mappa is)
+    t.send("a")
+    assert "kijelölve" not in t.row(ROWS - 3)
+    t.send("i")                                              # mappaméret: az aktuális (dir)
+    assert "dir: 2.9K, 1 fájl, 0 mappa" in t.text()
+
+
+def test_compress_and_extract_zip_and_targz(spawn, work):
+    (work / "a.txt").write_text("alma\n")
+    (work / "b.txt").write_text("korte\n")
+    t = spawn(".")
+    t.send(" ")
+    t.send(" ")                                              # a és b kijelölve
+    t.send("Z")
+    t.send(CTRL("u"))
+    t.send("csomag.zip\r", 0.8)
+    assert (work / "csomag.zip").exists()
+    with zipfile.ZipFile(work / "csomag.zip") as z:
+        assert sorted(z.namelist()) == ["a.txt", "b.txt"]
+    t.send("Z")                                              # a kurzor a(z új) fájlon áll
+    t.send(CTRL("u"))
+    t.send("x.tar.gz\r", 0.8)
+    assert (work / "x.tar.gz").exists()
+    # kicsomagolás: csomag.zip kiválasztása és U
+    names = [n for n in sorted(p.name for p in work.iterdir())]
+    t2 = spawn(".")
+    idx = names.index("csomag.zip")
+    for _ in range(idx):
+        t2.send("j")
+    t2.send("U")
+    t2.send("\r", 0.8)
+    assert (work / "csomag" / "a.txt").read_text() == "alma\n"
+
+
+@pytest.mark.skipif(not shutil.which("7z") and not shutil.which("7zz") and not shutil.which("7za"),
+                    reason="nincs 7z")
+def test_compress_7z(spawn, work):
+    (work / "a.txt").write_text("alma\n")
+    t = spawn(".")
+    t.send("Z")
+    t.send("\r", 1.5)
+    assert (work / "a.txt.7z").exists()
+
+
+def test_extract_refuses_path_traversal(work):
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from nanger import archiver
+    z = work / "evil.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr("../kint.txt", "x")
+    with pytest.raises(archiver.ArchiveError):
+        archiver.extract(str(z), str(work / "out"))
+    assert not (work / "kint.txt").exists()
+
+
+def test_double_key_remap_yy(spawn, work, env):
+    (work / "a.txt").write_text("x")
+    (work / "mappa").mkdir()
+    t = spawn(".")
+    t.send("K")
+    for _ in range(8):                  # "Copy" a 9. sor (Open, Back, New file, New folder, Rename, Bulk, Delete, Mark, Copy)
+        t.send("j")
+    t.send("\r")
+    t.send("y")
+    t.send("y")                         # yy
+    assert "Elmentve" in t.text()
+    t.send("q")
+    t.send("y")
+    assert "y …" in t.text() or "y…" in t.text().replace(" ", "")   # egy y: csak a sorozat eleje
+    t.send("y")
+    assert "kijelölve" in t.text() or "másolásra" in t.text()       # a yy lefutott: másolás

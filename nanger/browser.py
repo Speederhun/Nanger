@@ -9,10 +9,11 @@ import time
 
 from . import gitinfo
 from .config import settings
-from .fsops import load_bookmarks, save_bookmarks, trash
+from .fsops import load_bookmarks, save_bookmarks, trash, tree_size
 from .helptext import browser_help
 from .i18n import tr
 from .keys import BACKSPACE, C, ENTER, ESC, K_ALT_LEFT, K_ALT_RIGHT
+from . import archiver
 from .media import ARCHIVE_EXT, OFFICE_EXT, archive_lines, office_text, can_images, cached_render, draw_grid, file_kind, pdf_text
 from .term import A, clean, draw_help, put
 from .util import human, unique_path
@@ -57,6 +58,7 @@ class Browser:
         self.app = app
         self.cwd = os.path.abspath(os.path.expanduser(path))
         self.prev_cwd = None
+        self._sizes = {}
         self.back, self.fwd = [], []      # folder history (mouse back/forward buttons, Alt+arrows)
         self.hidden = settings.show_hidden
         self.sort = settings.sort
@@ -110,6 +112,7 @@ class Browser:
 
     def refresh(self, select=None):
         self._ls_cache.clear()
+        self._sizes.clear()
         gitinfo.invalidate()
         e = self.listdir(self.cwd)
         if e is None:
@@ -140,6 +143,112 @@ class Browser:
         self.cwd = path
         self.sel = self.top = 0
         self.refresh(select)
+
+    # ---- sizes, archives
+    def show_size(self):
+        app = self.app
+        paths = self.targets()
+        if not paths:
+            return
+        app.info(tr("Counting…"))
+        app.draw()
+        tot = files = dirs = 0
+        complete = True
+        for p in paths:
+            sz, f, d, ok = tree_size(p, 15.0 / len(paths))
+            tot, files, dirs, complete = tot + sz, files + f, dirs + d, complete and ok
+        more = "" if complete else " (≥)"
+        if len(paths) == 1:
+            msg = tr("{name}: {size}, {files} files, {dirs} folders").format(
+                name=os.path.basename(paths[0]), size=human(tot) + more, files=files, dirs=dirs)
+        else:
+            msg = tr("{n} items: {size}, {files} files, {dirs} folders").format(
+                n=len(paths), size=human(tot) + more, files=files, dirs=dirs)
+        app.info(msg)
+
+    def compress(self):
+        app = self.app
+        paths = self.targets()
+        if not paths:
+            return
+        names = [os.path.relpath(p, self.cwd) for p in paths if os.path.dirname(p) == self.cwd]
+        if not names:
+            return
+        base = names[0] if len(names) == 1 else os.path.basename(self.cwd) or "archive"
+        name = app.prompt(tr("Archive name (.7z, .zip, .tar.gz): "), base + ".7z")
+        if not name:
+            return
+        if "/" in name or name in (".", ".."):
+            app.error(tr("Invalid name: {name}").format(name=name))
+            return
+        app.info(tr("Compressing…"))
+        app.draw()
+        try:
+            archiver.compress(self.cwd, names, os.path.join(self.cwd, name))
+        except archiver.ArchiveError as e:
+            app.error(tr("Archive failed: {error}").format(error=e))
+            return
+        self.tagged.clear()
+        self.refresh(name)
+        app.info(tr("Created: {path}").format(path=name))
+
+    def extract(self):
+        app = self.app
+        paths = [p for p in self.targets() if os.path.isfile(p)]
+        if not paths:
+            return
+        bad = [p for p in paths if not archiver.is_archive(p)]
+        if bad and len(paths) == 1:
+            app.error(tr("Not an archive: {name}").format(name=os.path.basename(bad[0])))
+            return
+        paths = [p for p in paths if archiver.is_archive(p)]
+        if not paths:
+            return
+        dests = {}
+        if len(paths) == 1:
+            default = archiver.stem(os.path.basename(paths[0]))
+            d = app.prompt(tr("Extract to: "), default)
+            if not d:
+                return
+            dests[paths[0]] = os.path.join(self.cwd, os.path.expanduser(d))
+        else:
+            for p in paths:
+                dests[p] = os.path.join(self.cwd, archiver.stem(os.path.basename(p)))
+        app.info(tr("Extracting…"))
+        app.draw()
+        first = None
+        for p, dest in dests.items():
+            try:
+                archiver.extract(p, dest)
+                first = first or os.path.basename(dest)
+            except archiver.ArchiveError as e:
+                app.error(tr("Archive failed: {error}").format(error=e))
+                self.refresh()
+                return
+        self.tagged.clear()
+        self.refresh(first)
+        app.info(tr("Extracted {n} archive(s)").format(n=len(dests)))
+
+    def right_status(self):
+        """Bottom-right text: items in the folder, or the total size of the selection."""
+        if self.tagged:
+            tot, complete = 0, True
+            deadline = time.time() + 0.4          # sizes of selected folders: cached, bounded
+            for p in self.tagged:
+                hit = self._sizes.get(p)
+                if hit is None:
+                    left = max(0.02, deadline - time.time())
+                    sz, _f, _d, ok = tree_size(p, left)
+                    hit = (sz, ok)
+                    if ok:
+                        self._sizes[p] = hit
+                tot += hit[0]
+                complete = complete and hit[1]
+            return tr("{n} selected, {size}").format(
+                n=len(self.tagged), size=human(tot) + ("" if complete else " (≥)"))
+        dirs = sum(1 for e in self.entries if os.path.isdir(os.path.join(self.cwd, e)))
+        return tr("{files} files, {dirs} folders").format(files=len(self.entries) - dirs,
+                                                          dirs=dirs)
 
     def go_back(self):
         """Previous folder from the history; without history: the parent folder."""
@@ -248,6 +357,18 @@ class Browser:
             if cur:
                 self.tagged ^= {cur}
                 self.sel = min(max(0, n - 1), self.sel + 1)
+        elif k == "a":
+            allp = {os.path.join(self.cwd, e) for e in self.entries}
+            self.tagged = set() if allp and self.tagged >= allp else allp
+        elif k == "A":
+            allp = {os.path.join(self.cwd, e) for e in self.entries}
+            self.tagged = allp - self.tagged
+        elif k == "i":
+            self.show_size()
+        elif k == "Z":
+            self.compress()
+        elif k == "U":
+            self.extract()
         elif k == ESC:
             self.tagged.clear()
         elif k in ("y", "x"):
@@ -651,7 +772,10 @@ class Browser:
                     info += "   " + tr("clipboard: {n}").format(n=len(self.marked[0]))
                 if self.app.buffers:
                     info += "   " + tr("open files: {n} (Tab = back)").format(n=len(self.app.buffers))
-                put(scr, h - 3, 0, info, A["ln"])
+                right = self.right_status()
+                room = max(0, w - len(right) - 3)
+                put(scr, h - 3, 0, info[:room], A["ln"])
+                put(scr, h - 3, max(0, w - len(right) - 1), right, A["ln"] | curses.A_BOLD)
             except OSError:
                 pass
         draw_help(scr, h - 2, help_bar1(), w)

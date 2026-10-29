@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.8.0
+
+- **Pack / extract:** mark files with Space, `Z` packs them (`.7z` needs p7zip; `.zip`, `.tar.gz`,
+  `.tar.bz2`, `.tar.xz` work without extra tools), `U` extracts into a folder of the same
+  name (paths escaping the folder are refused). Both keys can be changed in the shortcut menu.
+- **Select all** (`a`, again = clear) and **invert selection** (`A`).
+- **Folder size:** `i` shows the size, file and folder count of the marked items / current item.
+- **Bottom-right status line:** number of files and folders in the current folder; with marks
+  it shows how many are selected and their total size (folders counted recursively).
+- Fixed: a two-key shortcut that starts with the old key (e.g. `y` -> `yy`) did not work.
+
 ## 1.7.0
 
 - `zh` shows/hides hidden files (like ranger; `.` still works).
