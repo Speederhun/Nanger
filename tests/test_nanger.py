@@ -19,7 +19,7 @@ pexpect = pytest.importorskip("pexpect")
 pyte = pytest.importorskip("pyte")
 
 ROOT = Path(__file__).resolve().parent.parent
-NANGER = os.environ.get("NANGER_BIN") or str(ROOT / "nanger")
+NANGER = os.environ.get("NANGER_BIN") or str(ROOT / "bin" / "nanger")
 
 CTRL = lambda c: chr(ord(c) & 0x1F)  # noqa: E731
 UP, DOWN, RIGHT, LEFT = "\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D"
@@ -29,11 +29,17 @@ ROWS, COLS = 30, 100
 
 
 def load_module():
-    loader = importlib.machinery.SourceFileLoader("nanger_mod", NANGER)
-    spec = importlib.util.spec_from_loader("nanger_mod", loader)
-    mod = importlib.util.module_from_spec(spec)
-    loader.exec_module(mod)
-    return mod
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from nanger import media, fsops
+
+    class M:
+        pass
+    m = M()
+    for mod in (media, fsops):
+        for k in dir(mod):
+            setattr(m, k, getattr(mod, k))
+    return m
 
 
 class Term:
@@ -42,7 +48,7 @@ class Term:
         self.stream = pyte.ByteStream(self.scr)
         self.p = pexpect.spawn(NANGER, [str(arg)], cwd=str(cwd), dimensions=(ROWS, COLS),
                                env=env)
-        self.pump()
+        self.pump(1.0)
 
     def pump(self, t=0.4):
         end = time.time() + t
@@ -89,7 +95,8 @@ def env(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
     e.update(TERM="xterm-256color", LANG="C.UTF-8", LC_ALL="C.UTF-8", HOME=str(home),
-             XDG_DATA_HOME=str(tmp_path / "xdg"))
+             XDG_DATA_HOME=str(tmp_path / "xdg"), XDG_CONFIG_HOME=str(tmp_path / "cfg"),
+             NANGER_LANG="hu")
     return e
 
 
@@ -519,3 +526,141 @@ def test_binary_file_preview_and_edit_refusal(spawn, work):
     assert "bináris fájl" in t.text()
     t.send("e")
     assert "bináris" in t.row(ROWS - 3)
+
+
+# ------------------------------------------------------------------ 1.2 újdonságok
+
+def test_every_message_has_hungarian_translation():
+    import ast
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from nanger.catalog_hu import HU
+    ids = set()
+    for f in (ROOT / "nanger").glob("*.py"):
+        for n in ast.walk(ast.parse(f.read_text())):
+            if (isinstance(n, ast.Call) and getattr(n.func, "id", "") == "tr" and n.args
+                    and isinstance(n.args[0], ast.Constant)):
+                ids.add(n.args[0].value)
+    assert ids - set(HU) == set()
+    for k, v in HU.items():  # a {mezők} egyezzenek
+        import re
+        assert sorted(re.findall(r"\{\w+\}", k)) == sorted(re.findall(r"\{\w+\}", v)), k
+
+
+def test_english_ui(spawn, work):
+    (work / "a.txt").write_text("x\n")
+    t = spawn(".", {"NANGER_LANG": "en"})
+    assert "Enter Open" in t.text()
+    t.send("\r")
+    assert "^S Save" in t.text()
+
+
+def test_cli_flags(work, env):
+    import subprocess
+    out = subprocess.run([NANGER, "--version"], capture_output=True, text=True, env=env)
+    assert out.stdout.startswith("nanger 1.")
+    out = subprocess.run([NANGER, "--init-config"], capture_output=True, text=True, env=env)
+    cfg = Path(env["XDG_CONFIG_HOME"]) / "nanger" / "config.ini"
+    assert cfg.exists() and "[colors]" in cfg.read_text()
+    out = subprocess.run([NANGER, "--config-path"], capture_output=True, text=True, env=env)
+    assert out.stdout.strip() == str(cfg)
+
+
+def test_plus_line_opens_at_line(spawn, work):
+    (work / "l.txt").write_text("".join(f"sor{i}\n" for i in range(1, 80)))
+    t = Term.__new__(Term)
+    t.scr = pyte.Screen(COLS, ROWS)
+    t.stream = pyte.ByteStream(t.scr)
+    e = dict(os.environ, TERM="xterm-256color", LANG="C.UTF-8", NANGER_LANG="hu")
+    t.p = pexpect.spawn(NANGER, ["+60", "l.txt"], cwd=str(work), dimensions=(ROWS, COLS), env=e)
+    t.pump()
+    assert "sor60" in t.text()
+    t.p.terminate(force=True)
+
+
+def test_config_tab_width_and_key_remap(spawn, work, env):
+    cfg = Path(env["XDG_CONFIG_HOME"]) / "nanger"
+    cfg.mkdir(parents=True)
+    (cfg / "config.ini").write_text("[general]\ntab_width = 2\n[keys.browser]\nx = D\n")
+    (work / "a.txt").write_text("x")
+    t = spawn(".")
+    t.send("x")   # x -> D (törlés)
+    assert "kukába" in t.text()
+    t.send("n")
+
+
+def test_git_status_in_browser_and_gutter(spawn, work):
+    import subprocess
+    if not shutil.which("git"):
+        pytest.skip("nincs git")
+    run = lambda *a: subprocess.run(a, cwd=work, check=True, capture_output=True)  # noqa: E731
+    run("git", "init", "-q")
+    run("git", "config", "user.email", "t@t")
+    run("git", "config", "user.name", "t")
+    (work / "a.txt").write_text("egy\nketto\nharom\n")
+    run("git", "add", ".")
+    run("git", "commit", "-qm", "x")
+    (work / "a.txt").write_text("egy\nMODOSITVA\nharom\nnegy\n")
+    (work / "uj.txt").write_text("uj\n")
+    t = spawn(".")
+    s = t.text()
+    assert "M" in t.row(1) + t.row(2) and "?" in t.row(1) + t.row(2)
+    t.send("\r")  # a.txt a lista elején van
+    gut = "".join(t.row(y)[:6] for y in range(1, 8))
+    assert "~" in gut and "+" in gut
+
+
+def test_tabs_switch_and_disk_change(spawn, work):
+    (work / "a.txt").write_text("alfa\n")
+    (work / "b.txt").write_text("beta\n")
+    t = spawn("a.txt")
+    t.send(CTRL("e"))            # fájlkezelő
+    t.send("j")
+    t.send("\r")                 # b.txt megnyitása
+    assert "beta" in t.text()
+    assert "a.txt" in t.row(0) and "b.txt" in t.row(0)
+    t.send("\x1b[1;3D")          # Alt+balra
+    assert "alfa" in t.text()
+    (work / "a.txt").write_text("kívülről\n")
+    time.sleep(1.2)
+    t.send(RIGHT)
+    assert "kívülről" in t.text()
+
+
+def test_grep_in_files_and_open_at_line(spawn, work):
+    (work / "a.txt").write_text("x\ny\nkeresett szo\n")
+    (work / "b.txt").write_text("semmi\n")
+    t = spawn(".")
+    t.send("f")
+    t.send("keresett\r", 1.0)
+    assert "a.txt" in t.text() and "keresett szo" in t.text()
+    t.send("\r")
+    assert "keresett szo" in t.text() and "^S" in t.text()
+
+
+def test_bookmarks_persist(spawn, work, tmp_path):
+    (work / "mappa").mkdir()
+    t = spawn(".")
+    t.send("\r")          # be a mappába
+    t.send("m")
+    t.send("a")
+    t.send("~")
+    t.send("'")
+    t.send("a")
+    assert "mappa" in t.row(0)
+    marks = (tmp_path / "xdg" / "nanger" / "bookmarks.json").read_text()
+    assert str(work / "mappa") in marks
+
+
+def test_bulk_rename(spawn, work):
+    for n in ("a1.txt", "a2.txt", "a3.txt"):
+        (work / n).write_text("x")
+    t = spawn(".")
+    t.send("R", 0.8)
+    t.send(CTRL("p"))
+    t.send("%s/a/b/g\r")
+    t.send(CTRL("s"))
+    t.send(CTRL("q"))
+    t.send("i")
+    t.pump(0.8)
+    assert sorted(p.name for p in work.iterdir()) == ["b1.txt", "b2.txt", "b3.txt"]

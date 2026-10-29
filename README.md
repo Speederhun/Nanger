@@ -1,176 +1,111 @@
 # nanger
 
-**Fájlkezelő és szövegszerkesztő egyben: ranger + nano + vim.**
+**ranger + nano + vim in one terminal program.** A three-column file manager with a
+built-in editor that is as easy as nano (Ctrl keys, always visible help bar) and has vim
+power (regex replace, `:g/pat/d`, sort, shell filters, macros, undo/redo).
 
-- **Olyan, mint a ranger:** háromoszlopos fájlkezelő (szülő mappa │ aktuális │ előnézet).
-- **Olyan egyszerű, mint a nano:** Ctrl-billentyűk, és alul mindig látszik, mi mit csinál.
-- **Annyit tud, mint a vim:** regex-csere, sorok törlése minta alapján, rendezés,
-  szűrés shell-parancson át, makrók, visszavonás/újra.
+English and Hungarian interface · Hungarian docs: [README.hu.md](README.hu.md)
 
-- **Mindent megnyit:** szöveget a szerkesztőben, képet és PDF-et előnézettel (a harmadik
-  oszlopban), dokumentumot, hangot és videót a rendszer alapértelmezett programjával.
-  Grafikus felület nélkül (SSH) a beépített kép- és PDF-nézegető működik.
-- **Biztonságos:** törlés a kukába megy (visszaállítható).
+## Features
 
-Szerkesztéshez és fájlkezeléshez csak Python 3 kell, külső csomag nem. Az előnézetekhez
-opcionális csomagok vannak (lásd lent), a `.deb` ezeket magától telepíti.
+- Three-column file manager with previews: text, folders, archives, **images and PDFs**
+  (coloured half-blocks, works over SSH in any 256-colour UTF-8 terminal)
+- **Git status** in the list and a changed-lines gutter in the editor
+- **Several open files**, file-changed-on-disk detection
+- **Bookmarks**, **bulk rename**, **search in files** (`f`, `:grep`)
+- Safe delete to the freedesktop **trash**
+- Opens documents/media with the desktop's default program (`xdg-open`)
+- Config file with colours and key remapping
 
-```
- nanger │ ~/projekt
- docs/          │ src/                          │ main.py
- projekt/       │ tests/                        │ util.py
-                │ README.md                4.1K │
-                │ setup.py                 1.2K │
- -rw-r--r--  4.1K  2026-10-29 09:09   3/4
-Enter Megnyit  ← Vissza  n Új fájl  N Új mappa  r Átnevez  D Töröl  / Keres  q Kilép
-Szóköz Jelöl  y Másol  x Kivág  p Beilleszt  . Rejtett  c Ugrás  S Shell  ? Súgó
-```
+## Install
 
-## Telepítés
-
-### Debian, Ubuntu, Linux Mint (apt)
-
-Töltsd le a `nanger_<verzió>_all.deb` fájlt a [Releases](https://github.com/Speederhun/Nanger/releases)
-oldalról, majd:
+### Debian / Ubuntu (apt repository, updates with `apt upgrade`)
 
 ```sh
-sudo apt install ./nanger_1.0.0_all.deb
+curl -fsSL https://speederhun.github.io/Nanger/key.gpg | sudo tee /usr/share/keyrings/nanger.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/nanger.gpg] https://speederhun.github.io/Nanger stable main" \
+  | sudo tee /etc/apt/sources.list.d/nanger.list
+sudo apt update && sudo apt install nanger
 ```
 
-Eltávolítás: `sudo apt remove nanger`
+Or download the `.deb` from the [Releases](https://github.com/Speederhun/Nanger/releases)
+page and run `sudo apt install ./nanger_*_all.deb`.
 
-Az `apt` a javasolt csomagokat (`python3-pil`, `poppler-utils`, `xdg-utils`) is felteszi,
-ezekkel működik a kép- és PDF-előnézet.
-
-### Arch, Manjaro (pacman)
+### Arch Linux
 
 ```sh
-git clone https://github.com/Speederhun/Nanger.git
-cd Nanger/packaging/arch
-makepkg -si
+yay -S nanger          # AUR
+# or from this repository:
+cd packaging/arch && makepkg -si
 ```
 
-Eltávolítás: `sudo pacman -R nanger`
-
-Az előnézetekhez: `sudo pacman -S python-pillow poppler xdg-utils`
-
-### Bármely más Linux
+### From source
 
 ```sh
-git clone https://github.com/Speederhun/Nanger.git
-cd Nanger
-sudo make install          # eltávolítás: sudo make uninstall
+sudo make install        # PREFIX=/usr/local to change
 ```
 
-## Használat
+## Update
 
-```sh
-nanger                # fájlkezelő az aktuális mappában
-nanger ~/projekt      # fájlkezelő a megadott mappában
-nanger jegyzet.txt    # a fájl azonnali szerkesztése
-man nanger            # kézikönyv
-```
-
-A programon belül a **?** (fájlkezelő) vagy az **F1** (szerkesztő) mutatja az összes billentyűt.
-
-### Fájlkezelő
-
-| Billentyű | Művelet |
+| Installed with | Update |
 |---|---|
-| ↑ ↓ / `k` `j` | mozgás |
-| ← / `h` / Backspace | szülő mappa |
-| → / `l` / Enter | mappába lépés / fájl megnyitása típus szerint (lásd lent) |
-| `v` | megnyitás a beépített nézegetőben (kép, PDF) |
-| `o` | megnyitás külső programmal (`xdg-open`) |
-| `s` | rendezés váltása: név → méret → dátum → kiterjesztés |
-| `n` / `N` | új fájl / új mappa |
-| `r` | átnevezés |
-| `D` / Delete | törlés: `t` = kukába, `d` = végleges (kétszer kell megerősíteni) |
-| Szóköz | megjelölés (több fájl egyszerre) |
-| `y` / `x` / `p` | másolás / kivágás / beillesztés |
-| `/` | keresés név alapján |
-| `.` | rejtett fájlok |
-| `c` | ugrás egy elérési útra |
-| `S` / `!` | shell ebben a mappában / egy parancs futtatása |
-| `q` | kilépés |
+| apt repository | `sudo apt update && sudo apt upgrade` |
+| downloaded `.deb` | `sudo apt install ./nanger_<new>_all.deb` |
+| AUR | `yay -Syu` |
+| `makepkg` / `make install` | pull, then run it again |
 
-### Előnézet és megnyitás
+## Optional dependencies
 
-| Fájltípus | Előnézet (harmadik oszlop) | Enter |
-|---|---|---|
-| szöveg, forráskód | az első sorok | szerkesztő |
-| kép (png, jpg, gif, webp, …) | színes rajz a képről | külső program; grafikus felület nélkül a beépített nézegető |
-| PDF | az első oldal rajza | külső program; grafikus felület nélkül a beépített nézegető |
-| zip, tar, tar.gz, … | tartalomjegyzék | külső program; grafikus felület nélkül lapozható lista |
-| docx, odt, xlsx, mp3, mp4, … | méret és tipp | külső program (`xdg-open`) |
-| mappa | a tartalma | belépés |
+`python3-pil` (image/PDF preview), `poppler-utils` (PDF), `git` (status), `xdg-utils`
+(external open), `xclip` / `wl-clipboard` (system clipboard).
 
-Az előnézet félblokkos karakterekkel készül, ezért szabványos 256 színű UTF-8
-terminálban (SSH-n és tmux-ban is) működik, külön grafikus protokoll nélkül. Kép előnézetéhez a **Pillow**, PDF-hez emellett a
-**poppler-utils** kell; ha nincs meg, a PDF-nél legalább az első oldal szövege látszik.
+## Keys
 
-A beépített nézegetőben (`v`, vagy Enter grafikus felület nélkül): ←/→ a mappa képei
-vagy a PDF oldalai között lapoz, `t` PDF-nél szöveg és kép között vált, `o` külső
-programmal nyit, `q` visszalép.
+`?` in the file manager and `F1` in the editor show all keys. Main ones:
 
-### Szerkesztő
-
-| Billentyű | Művelet |
+| File manager | |
 |---|---|
-| Ctrl+S / Ctrl+O | mentés / mentés másként |
-| Ctrl+Q | bezárás (vissza a fájlkezelőbe) |
-| Ctrl+F / Ctrl+N | keresés / következő találat |
-| Ctrl+R | csere (regex) |
-| Ctrl+G | ugrás sorra (`120` vagy `120:5`) |
-| Ctrl+Z / Ctrl+Y | visszavonás / újra |
-| Shift+nyilak, Ctrl+B, Ctrl+A | kijelölés |
-| Ctrl+C / Ctrl+K / Ctrl+V | másolás / kivágás / beillesztés |
-| Ctrl+D | sor duplikálása |
-| Tab / Shift+Tab | kijelölt sorok be- / kihúzása |
-| F5 / F6 | makró felvétele / lejátszása |
-| Ctrl+P | parancssor (lásd lent) |
+| Enter / → / ← | open / parent folder |
+| `n` `N` `r` `R` `D` | new file, new folder, rename, bulk rename, delete |
+| `y` `x` `p` `Space` | copy, cut, paste, mark |
+| `/` `f` | find by name / grep in files |
+| `m` `'` | set / jump to bookmark |
+| `s` `.` `v` `o` | sort, hidden files, built-in viewer, external open |
 
-### Parancssor (Ctrl+P) — a vim `:` parancsai
-
-| Parancs | Művelet |
+| Editor | |
 |---|---|
-| `w`, `q`, `q!`, `wq` | mentés, kilépés, kilépés mentés nélkül, mindkettő |
-| `120`, `$` | ugrás a 120. / utolsó sorra |
-| `s/régi/új/g` | csere az aktuális vagy a kijelölt sorokban |
-| `%s/régi/új/gi` | csere az egész fájlban (`i` = kis/nagybetű mindegy) |
-| `10,20s/a/b/g` | csere a 10–20. sorban |
-| `g/minta/d`, `v/minta/d` | illeszkedő / nem illeszkedő sorok törlése |
-| `sort`, `sort!`, `uniq` | rendezés, fordított rendezés, ismétlődők törlése |
-| `upper`, `lower` | nagy- / kisbetűsítés |
-| `!parancs` | a kijelölt sorok átszűrése (pl. `!sort -n`) |
-| `r !parancs` | a parancs kimenetének beszúrása |
-| `@ 20` | a makró lejátszása 20-szer |
-| `e fájl` | másik fájl megnyitása |
+| Ctrl+S / Ctrl+Q | save / close |
+| Ctrl+F, Ctrl+N, Ctrl+R, Ctrl+G | find, next, replace, go to line |
+| Ctrl+P | command line: `%s/a/b/g`, `g/pat/d`, `sort`, `!cmd`, `:grep`, `:e file` |
+| Alt+←/→, F4 | switch files / file manager |
 
-## Fejlesztés
+## Configuration
+
+`nanger --init-config` creates `~/.config/nanger/config.ini`. Language: `NANGER_LANG=en|hu`.
+
+## Development
 
 ```sh
-pip install -r requirements-dev.txt     # pytest, pexpect, pyte, pillow
-sudo apt install poppler-utils          # a PDF-tesztekhez
-make test                               # a tesztek valódi pszeudo-terminálban futnak
-make deb                                # .deb építése a dist/ mappába
+pip install -r requirements-dev.txt && pytest -q tests
+sh packaging/debian/build-deb.sh
 ```
 
-A tesztek (`tests/`) a programot egy valódi terminálban indítják, billentyűket küldenek
-neki, és a képernyőt meg a lemezen történt változásokat ellenőrzik. A GitHub Actions
-minden push-nál lefuttatja őket Python 3.8–3.13 alatt, és kipróbálja a `.deb`
-telepítését és eltávolítását is.
+## Maintainer notes: publishing updates
 
-## Új verzió kiadása
+Releases are automatic: bump `__version__` in `nanger/__init__.py`, add a `CHANGELOG.md`
+section and push to `main`. The *release* workflow creates the GitHub release with the
+`.deb`, and (if the secrets exist) publishes the apt repository to the `gh-pages` branch and
+updates the AUR package.
 
-1. Írd át a verziót a `nanger` fájlban (`VERSION = "..."`), a `packaging/arch/PKGBUILD`-ben
-   (`pkgver`), a `nanger.1`-ben, és vezesd be a `CHANGELOG.md`-be.
-2. Címkézd meg és töltsd fel:
-   ```sh
-   git tag v1.0.1 && git push origin v1.0.1
-   ```
-3. A GitHub Actions automatikusan megépíti a `.deb`-et és közzéteszi a Releases oldalon.
+One-time setup for the apt repository:
 
-## Licenc
+1. `gpg --quick-gen-key "nanger repo" rsa3072 sign never`, then
+   `gpg --armor --export-secret-keys <ID>` → repository secret `APT_GPG_PRIVATE_KEY`
+   (passphrase, if any → `APT_GPG_PASSPHRASE`).
+2. Run the workflow once, then *Settings → Pages → Deploy from branch → `gh-pages`*.
+   GitHub Pages needs a public repository (or a paid plan for private ones).
+3. For the AUR: create the `nanger` package there once and put an SSH key in `AUR_SSH_PRIVATE_KEY`.
+
+## License
 
 MIT

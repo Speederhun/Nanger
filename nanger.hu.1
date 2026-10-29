@@ -1,0 +1,195 @@
+.TH NANGER 1 "2026" "nanger 1.2.0" "Felhasználói parancsok"
+.SH NÉV
+nanger \- fájlkezelő és szövegszerkesztő egyben (ranger + nano + vim)
+.SH ÁTTEKINTÉS
+.B nanger
+.RI [ +N ] \ [ mappa | fájl ]
+.SH LEÍRÁS
+A
+.B nanger
+egy terminálos fájlkezelő ranger-stílusú, háromoszlopos nézettel, beépített
+szövegszerkesztővel. A szerkesztő úgy használható, mint a nano: Ctrl-billentyűk,
+mindig látható súgósor. Közben a vim erejét is nyújtja: regex-csere, sorok
+törlése minta alapján, rendezés, szűrés shell-parancson át, makrók,
+visszavonás/újra.
+.PP
+Argumentum nélkül az aktuális mappát nyitja meg. Mappát megadva abban indul,
+fájlt megadva azonnal szerkeszti.
+.SH FÁJLKEZELŐ
+.TP
+.B Fel/Le, k/j
+mozgás
+.TP
+.B Bal, h, Backspace
+szülő mappa
+.TP
+.B Jobb, l, Enter
+belépés a mappába, vagy a fájl megnyitása a típusa szerint (lásd
+.BR "ELŐNÉZET ÉS MEGNYITÁS" )
+.TP
+.B s
+rendezés váltása: név, méret, módosítás ideje, kiterjesztés
+.TP
+.B v
+megnyitás a beépített nézegetőben (képek és PDF-ek)
+.TP
+.B o
+megnyitás külső programmal (xdg-open)
+.TP
+.B n / N
+új fájl / új mappa
+.TP
+.B r
+átnevezés
+.TP
+.B D, Delete
+törlés: t = a kukába (visszaállítható, a szabványos ~/.local/share/Trash),
+d = végleges törlés (kétszeri megerősítéssel)
+.TP
+.B Szóköz
+megjelölés
+.TP
+.B y / x / p
+másolás / kivágás / beillesztés
+.TP
+.B /
+keresés név alapján
+.TP
+.B .
+rejtett fájlok
+.TP
+.B c
+ugrás elérési útra
+.TP
+.B f
+keresés a fájlok tartalmában (találat: Enter = megnyitás az adott sorban)
+.TP
+.B m / '
+könyvjelző beállítása / ugrás könyvjelzőre (\(aq\(aq = előző mappa, ? = lista)
+.TP
+.B R
+tömeges átnevezés: a nevek egy szerkesztőben nyílnak meg, mentés és bezárás után lefutnak
+.TP
+.B b / Tab, F4
+a megnyitott fájlok listája / vissza a szerkesztőbe
+.TP
+.B S / !
+shell nyitása / parancs futtatása az aktuális mappában
+.TP
+.B q
+kilépés
+.SH GIT
+Ha a mappa git-tárolóban van, a fájllista mutatja az állapotot (M módosított, A új,
+? nem követett, D törölt, ! ütközés), a szerkesztő bal szélén pedig a módosult sorok
+látszanak (+ új, ~ módosított, _ törölt).
+.SH ELŐNÉZET ÉS MEGNYITÁS
+A harmadik oszlopban az aktuális elem előnézete látszik: szöveg, mappa
+tartalma, archívum (zip, tar, tar.gz, ...) tartalomjegyzéke, képek és PDF-ek
+első oldala színes félblokkos rajzként (bármely 256 színű UTF-8 terminálban
+működik, protokoll-támogatás nem kell).
+.PP
+Enter hatása fájltípus szerint: szöveg \(-> szerkesztő; kép, PDF, dokumentum
+(docx, odt, xlsx, ...), hang- és videófájl \(-> a rendszer alapértelmezett
+programja (xdg-open), ha van grafikus felület; kép és PDF grafikus felület nélkül
+(pl. SSH-n) \(-> a beépített nézegető.
+.PP
+A nézegetőben a bal/jobb nyíl a mappa képei, illetve a PDF oldalai között
+lapoz, a
+.B t
+a PDF szöveges és képes megjelenítése között vált, az
+.B o
+külső programmal nyit, a
+.B q
+visszalép.
+.SH SZERKESZTŐ
+.TP
+.B Ctrl+S / Ctrl+O
+mentés / mentés másként
+.TP
+.B Ctrl+Q, Ctrl+X
+bezárás
+.TP
+.B Ctrl+F / Ctrl+N
+keresés / következő találat
+.TP
+.B Ctrl+R
+csere (reguláris kifejezéssel)
+.TP
+.B Ctrl+G
+ugrás sorra
+.TP
+.B Ctrl+Z / Ctrl+Y
+visszavonás / újra
+.TP
+.B Shift+nyilak, Ctrl+B, Ctrl+A
+kijelölés
+.TP
+.B Ctrl+C / Ctrl+K / Ctrl+V
+másolás / kivágás / beillesztés
+.TP
+.B Ctrl+D
+sor duplikálása
+.TP
+.B F5 / F6
+makró felvétele / lejátszása
+.TP
+.B Ctrl+P
+parancssor (lásd lent)
+.TP
+.B F1
+súgó
+.SH TÖBB MEGNYITOTT FÁJL
+A fájlok fülekként maradnak nyitva. Alt+Balra/Jobbra vagy Alt+1..9 vált közöttük,
+F4 / Ctrl+E a fájlkezelőbe visz vissza. Ha egy megnyitott fájl a lemezen megváltozik,
+a program újratölti (vagy figyelmeztet, ha mentetlen módosítás van).
+.SH PARANCSOK (Ctrl+P)
+.TP
+.B w, q, q!, wq
+mentés, kilépés, kilépés mentés nélkül, mindkettő
+.TP
+.BI % s/minta/csere/gi
+csere az egész fájlban; szám,szám előtag esetén a megadott sorokban
+.TP
+.BI g/ minta /d ", " v/ minta /d
+illeszkedő / nem illeszkedő sorok törlése
+.TP
+.B sort, sort!, uniq, upper, lower
+rendezés és átalakítás
+.TP
+.BI ! parancs
+a kijelölt sorok átszűrése egy shell-parancson
+.TP
+.BI "r !" parancs
+a parancs kimenetének beszúrása
+.TP
+.BI "e " fájl ", e!"
+másik fájl megnyitása / újratöltés a lemezről
+.TP
+.B ls, b N, bn, bp
+megnyitott fájlok listája, váltás
+.TP
+.BI grep " minta" ", copen"
+keresés a fájlokban / az utolsó találatok
+.TP
+.BI @ N
+a makró lejátszása N-szer
+.SH BEÁLLÍTÁSOK
+.B nanger \-\-init\-config
+létrehozza a ~/.config/nanger/config.ini fájlt (színek, tabulátor-szélesség,
+sorszámok, rendezés, billentyű-átkötések, nyelv). A nyelv:
+.B NANGER_LANG=en|hu
+vagy a fájl language sora. A könyvjelzők a ~/.local/share/nanger/bookmarks.json fájlban vannak.
+.SH KÖVETELMÉNYEK
+Python 3.8 vagy újabb. A szerkesztéshez és a fájlkezeléshez külső csomag nem
+kell. Opcionális: a
+.B Pillow
+(python3-pil / python-pillow) a kép- és PDF-előnézethez, a
+.B poppler-utils
+a PDF-hez, az
+.B xdg-utils
+a külső megnyitáshoz. Ha telepítve van a
+.BR wl-copy ,
+.B xclip
+vagy
+.BR xsel ,
+a másolt szöveg a rendszer vágólapjára is kerül.

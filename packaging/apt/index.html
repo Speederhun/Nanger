@@ -1,0 +1,8 @@
+<!doctype html><meta charset="utf-8"><title>nanger apt repository</title>
+<body style="font-family:sans-serif;max-width:46em;margin:2em auto;padding:0 1em">
+<h1>nanger apt repository</h1>
+<pre>curl -fsSL https://speederhun.github.io/Nanger/key.gpg | sudo tee /usr/share/keyrings/nanger.gpg &gt;/dev/null
+echo "deb [signed-by=/usr/share/keyrings/nanger.gpg] https://speederhun.github.io/Nanger stable main" | sudo tee /etc/apt/sources.list.d/nanger.list
+sudo apt update &amp;&amp; sudo apt install nanger</pre>
+<p>Updates: <code>sudo apt update &amp;&amp; sudo apt upgrade</code></p>
+<p><a href="https://github.com/Speederhun/Nanger">github.com/Speederhun/Nanger</a></p>

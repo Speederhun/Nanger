@@ -1,160 +1,194 @@
-.TH NANGER 1 "2026" "nanger 1.1.0" "Felhasználói parancsok"
-.SH NÉV
-nanger \- fájlkezelő és szövegszerkesztő egyben (ranger + nano + vim)
-.SH ÁTTEKINTÉS
+.TH NANGER 1 "2026" "nanger 1.2.0" "User Commands"
+.SH NAME
+nanger \- file manager and text editor in one (ranger + nano + vim)
+.SH SYNOPSIS
 .B nanger
-.RI [ mappa | fájl ]
-.SH LEÍRÁS
-A
+.RI [ +N ] " " [ folder | file ]
+.br
+.B nanger \-\-init\-config | \-\-config\-path | \-\-version | \-\-help
+.SH DESCRIPTION
 .B nanger
-egy terminálos fájlkezelő ranger-stílusú, háromoszlopos nézettel, beépített
-szövegszerkesztővel. A szerkesztő úgy használható, mint a nano: Ctrl-billentyűk,
-mindig látható súgósor. Közben a vim erejét is nyújtja: regex-csere, sorok
-törlése minta alapján, rendezés, szűrés shell-parancson át, makrók,
-visszavonás/újra.
+is a terminal file manager with a ranger-style three-column view and a built-in text
+editor. The editor is as easy as nano (Ctrl keys, an always visible help bar) and has
+vim power: regex substitution, deleting lines by pattern, sorting, shell filters, macros,
+undo and redo.
 .PP
-Argumentum nélkül az aktuális mappát nyitja meg. Mappát megadva abban indul,
-fájlt megadva azonnal szerkeszti.
-.SH FÁJLKEZELŐ
+Without arguments it opens the current folder. Given a folder it starts there; given a file
+it opens it by type (text goes to the editor, images and PDFs to the viewer).
+.B +N
+opens the text file at line N.
+.SH FILE MANAGER
 .TP
-.B Fel/Le, k/j
-mozgás
+.B Up/Down, k/j
+move
 .TP
-.B Bal, h, Backspace
-szülő mappa
+.B Left, h, Backspace
+parent folder
 .TP
-.B Jobb, l, Enter
-belépés a mappába, vagy a fájl megnyitása a típusa szerint (lásd
-.BR "ELŐNÉZET ÉS MEGNYITÁS" )
+.B Right, l, Enter
+enter the folder, or open the file by its type
 .TP
 .B s
-rendezés váltása: név, méret, módosítás ideje, kiterjesztés
+cycle the sorting: name, size, modification time, extension
 .TP
 .B v
-megnyitás a beépített nézegetőben (képek és PDF-ek)
+open in the built-in viewer (images and PDFs)
 .TP
 .B o
-megnyitás külső programmal (xdg-open)
+open with an external program (xdg-open)
 .TP
 .B n / N
-új fájl / új mappa
+new file / new folder
 .TP
 .B r
-átnevezés
+rename
+.TP
+.B R
+bulk rename: the names open in the editor; save and close the file to apply them
 .TP
 .B D, Delete
-törlés: t = a kukába (visszaállítható, a szabványos ~/.local/share/Trash),
-d = végleges törlés (kétszeri megerősítéssel)
+delete: t = move to the trash (freedesktop trash, recoverable), d = delete permanently
+(asks twice)
 .TP
-.B Szóköz
-megjelölés
+.B Space
+mark
 .TP
 .B y / x / p
-másolás / kivágás / beillesztés
+copy / cut / paste
 .TP
 .B /
-keresés név alapján
+search by name
+.TP
+.B f
+search in file contents (Enter on a result opens the file at that line)
+.TP
+.B m / '
+set a bookmark / jump to a bookmark (\(aq\(aq = previous folder, ? = list)
 .TP
 .B .
-rejtett fájlok
+show hidden files
 .TP
 .B c
-ugrás elérési útra
+go to a path
+.TP
+.B b / Tab, F4
+list of open files / back to the editor
 .TP
 .B S / !
-shell nyitása / parancs futtatása az aktuális mappában
+open a shell / run a command in the current folder
 .TP
 .B q
-kilépés
-.SH ELŐNÉZET ÉS MEGNYITÁS
-A harmadik oszlopban az aktuális elem előnézete látszik: szöveg, mappa
-tartalma, archívum (zip, tar, tar.gz, ...) tartalomjegyzéke, képek és PDF-ek
-első oldala színes félblokkos rajzként (bármely 256 színű UTF-8 terminálban
-működik, protokoll-támogatás nem kell).
+quit
+.SH GIT
+In a git repository the file list shows the status of each entry (M modified, A added,
+? untracked, D deleted, ! conflict) and the editor marks changed lines in the left margin
+(+ added, ~ changed, _ lines deleted above).
+.SH PREVIEW AND OPENING
+The third column shows a preview: text, folder contents, archive listings (zip, tar, tar.gz,
+...), and the first page of images and PDFs drawn with coloured half-blocks. This works in
+any 256-colour UTF-8 terminal; no graphics protocol is needed.
 .PP
-Enter hatása fájltípus szerint: szöveg \(-> szerkesztő; kép, PDF, dokumentum
-(docx, odt, xlsx, ...), hang- és videófájl \(-> a rendszer alapértelmezett
-programja (xdg-open), ha van grafikus felület; kép és PDF grafikus felület nélkül
-(pl. SSH-n) \(-> a beépített nézegető.
-.PP
-A nézegetőben a bal/jobb nyíl a mappa képei, illetve a PDF oldalai között
-lapoz, a
+Enter on a file: text \(-> editor; images, PDFs, documents (docx, odt, xlsx, ...), audio and
+video \(-> the default program (xdg-open) when a graphical session exists; images and PDFs
+without one (for example over SSH) \(-> the built-in viewer. In the viewer the arrows page
+through the images of the folder or the pages of the PDF,
 .B t
-a PDF szöveges és képes megjelenítése között vált, az
+switches a PDF between text and image,
 .B o
-külső programmal nyit, a
+opens externally and
 .B q
-visszalép.
-.SH SZERKESZTŐ
+goes back.
+.SH EDITOR
 .TP
 .B Ctrl+S / Ctrl+O
-mentés / mentés másként
+save / save as
 .TP
 .B Ctrl+Q, Ctrl+X
-bezárás
+close
 .TP
 .B Ctrl+F / Ctrl+N
-keresés / következő találat
+search / next match
 .TP
 .B Ctrl+R
-csere (reguláris kifejezéssel)
+replace (regular expression)
 .TP
 .B Ctrl+G
-ugrás sorra
+go to line
 .TP
 .B Ctrl+Z / Ctrl+Y
-visszavonás / újra
+undo / redo
 .TP
-.B Shift+nyilak, Ctrl+B, Ctrl+A
-kijelölés
+.B Shift+arrows, Ctrl+B, Ctrl+A
+selection
 .TP
 .B Ctrl+C / Ctrl+K / Ctrl+V
-másolás / kivágás / beillesztés
+copy / cut / paste
 .TP
 .B Ctrl+D
-sor duplikálása
+duplicate the line
 .TP
 .B F5 / F6
-makró felvétele / lejátszása
+record / play a macro
 .TP
 .B Ctrl+P
-parancssor (lásd lent)
+command line (see below)
 .TP
 .B F1
-súgó
-.SH PARANCSOK (Ctrl+P)
+help
+.SH SEVERAL OPEN FILES
+Files stay open as tabs. Alt+Left/Right or Alt+1..9 switch between them; F4 or Ctrl+E goes
+back to the file manager. If an open file changes on disk it is reloaded (or a warning is
+shown when there are unsaved changes).
+.SH COMMANDS (Ctrl+P)
 .TP
 .B w, q, q!, wq
-mentés, kilépés, kilépés mentés nélkül, mindkettő
+save, quit, quit without saving, both
 .TP
-.BI % s/minta/csere/gi
-csere az egész fájlban; szám,szám előtag esetén a megadott sorokban
+.BI % s/pattern/replacement/gi
+substitute in the whole file; with a range prefix in those lines
 .TP
-.BI g/ minta /d ", " v/ minta /d
-illeszkedő / nem illeszkedő sorok törlése
+.BI g/ pattern /d ", " v/ pattern /d
+delete matching / non-matching lines
 .TP
 .B sort, sort!, uniq, upper, lower
-rendezés és átalakítás
+sort and transform
 .TP
-.BI ! parancs
-a kijelölt sorok átszűrése egy shell-parancson
+.BI ! command
+filter the selected lines through a shell command
 .TP
-.BI "r !" parancs
-a parancs kimenetének beszúrása
+.BI "r !" command
+insert the output of a command
+.TP
+.BI "e " file ", e!"
+open another file / reload from disk
+.TP
+.B ls, b N, bn, bp
+list the open files, switch
+.TP
+.BI grep " pattern" ", copen"
+search in files / show the last results
 .TP
 .BI @ N
-a makró lejátszása N-szer
-.SH KÖVETELMÉNYEK
-Python 3.8 vagy újabb. A szerkesztéshez és a fájlkezeléshez külső csomag nem
-kell. Opcionális: a
+play the macro N times
+.SH CONFIGURATION
+.B nanger \-\-init\-config
+creates ~/.config/nanger/config.ini (colours, tab width, line numbers, sorting, key
+remapping, language). The language is chosen with the
+.B NANGER_LANG=en|hu
+environment variable or the language line of the file. Bookmarks are stored in
+~/.local/share/nanger/bookmarks.json.
+.SH REQUIREMENTS
+Python 3.8 or newer. Optional:
 .B Pillow
-(python3-pil / python-pillow) a kép- és PDF-előnézethez, a
+(python3-pil / python-pillow) for image and PDF previews,
 .B poppler-utils
-a PDF-hez, az
+for PDFs,
+.B git
+for git status,
 .B xdg-utils
-a külső megnyitáshoz. Ha telepítve van a
+for external opening, and
 .BR wl-copy ,
 .B xclip
-vagy
-.BR xsel ,
-a másolt szöveg a rendszer vágólapjára is kerül.
+or
+.B xsel
+for the system clipboard.

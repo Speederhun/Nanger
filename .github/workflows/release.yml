@@ -1,34 +1,102 @@
-# Minden "v*" címke (pl. v1.0.0) feltöltésekor megépíti a .deb-et és
-# a forrás-csomagot, majd GitHub Release-ként közzéteszi őket.
+# On every push to main whose version (nanger/__init__.py) has no release yet:
+# build the .deb, create the GitHub release (and the v<version> tag), publish the
+# signed apt repository to GitHub Pages (branch gh-pages) and, if configured, the AUR.
+#
+# Optional secrets: APT_GPG_PRIVATE_KEY (+ APT_GPG_PASSPHRASE), AUR_SSH_PRIVATE_KEY
 name: release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Szintaxis-ellenőrzés
-        run: python3 -m py_compile nanger
-
-      - name: .deb építése
+      - name: Read the version
+        id: v
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          sh packaging/debian/build-deb.sh "$VERSION"
-          git archive --format=tar.gz --prefix="nanger-$VERSION/" \
-            -o "dist/nanger-$VERSION.tar.gz" "$GITHUB_REF_NAME"
+          VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' nanger/__init__.py)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" >/dev/null 2>&1; then echo "new=no" >> "$GITHUB_OUTPUT"; else echo "new=yes" >> "$GITHUB_OUTPUT"; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
 
-      - name: Release közzététele
+      - name: Build
+        if: steps.v.outputs.new == 'yes'
+        run: |
+          python3 -m compileall -q nanger
+          sh packaging/debian/build-deb.sh "${{ steps.v.outputs.version }}"
+          git archive --format=tar.gz --prefix="nanger-${{ steps.v.outputs.version }}/" \
+            -o "dist/nanger-${{ steps.v.outputs.version }}.tar.gz" HEAD
+
+      - name: GitHub release
+        if: steps.v.outputs.new == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "nanger ${GITHUB_REF_NAME#v}" \
-            --notes "Telepítés: lásd a README-t."
+          gh release create "v${{ steps.v.outputs.version }}" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "nanger ${{ steps.v.outputs.version }}" \
+            --notes-file <(sed -n '/^## /{p;:a;n;/^## /q;p;ba}' CHANGELOG.md | sed '1d')
+
+      - name: Check optional secrets
+        id: sec
+        env:
+          K1: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          K2: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          [ -n "$K1" ] && echo "apt=yes" >> "$GITHUB_OUTPUT" || echo "apt=no" >> "$GITHUB_OUTPUT"
+          [ -n "$K2" ] && echo "aur=yes" >> "$GITHUB_OUTPUT" || echo "aur=no" >> "$GITHUB_OUTPUT"
+
+      - name: Signed apt repository to GitHub Pages
+        if: steps.v.outputs.new == 'yes' && steps.sec.outputs.apt == 'yes'
+        env:
+          GPG_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          GPG_PASS: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y apt-utils
+          echo "$GPG_KEY" | gpg --batch --import
+          KEY="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')"
+          printf '%s' "$GPG_PASS" > /tmp/pp
+          export GPG_OPTS="--pinentry-mode loopback --passphrase-file /tmp/pp"
+          # keep older versions: start from the current gh-pages content
+          mkdir -p /tmp/debs
+          if git fetch origin gh-pages 2>/dev/null; then
+            git worktree add /tmp/pages FETCH_HEAD
+            cp /tmp/pages/pool/main/*.deb /tmp/debs/ 2>/dev/null || true
+          fi
+          cp dist/*.deb /tmp/debs/
+          sh packaging/apt/build-repo.sh /tmp/debs /tmp/site "$KEY"
+          cp packaging/apt/index.html /tmp/site/index.html
+          cd /tmp/site
+          git init -q -b gh-pages
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -qm "apt repository ${{ steps.v.outputs.version }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" gh-pages
+
+      - name: Update the AUR package
+        if: steps.v.outputs.new == 'yes' && steps.sec.outputs.aur == 'yes'
+        env:
+          AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh && echo "$AUR_KEY" > ~/.ssh/aur && chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur"
+          git clone ssh://aur@aur.archlinux.org/nanger.git /tmp/aur
+          VERSION="${{ steps.v.outputs.version }}"
+          sed "s/^pkgver=.*/pkgver=$VERSION/; s/^pkgrel=.*/pkgrel=1/" packaging/aur/PKGBUILD > /tmp/aur/PKGBUILD
+          sed "s/pkgver = .*/pkgver = $VERSION/; s/#tag=v[0-9.]*/#tag=v$VERSION/" packaging/aur/.SRCINFO > /tmp/aur/.SRCINFO
+          cd /tmp/aur
+          git config user.name "Speederhun"; git config user.email "noreply@github.com"
+          git add -A && git commit -qm "Update to $VERSION" && git push

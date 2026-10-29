@@ -1,0 +1,19 @@
+pkgbase = nanger
+	pkgdesc = File manager and text editor in one (ranger + nano + vim)
+	pkgver = 1.2.0
+	pkgrel = 1
+	url = https://github.com/Speederhun/Nanger
+	arch = any
+	license = MIT
+	makedepends = git
+	depends = python
+	optdepends = python-pillow: image and PDF previews
+	optdepends = poppler: PDF previews and PDF text
+	optdepends = git: git status in the file manager
+	optdepends = xdg-utils: open files with external programs
+	optdepends = wl-clipboard: system clipboard on Wayland
+	optdepends = xclip: system clipboard on X11
+	source = nanger::git+https://github.com/Speederhun/Nanger.git#tag=v1.2.0
+	sha256sums = SKIP
+
+pkgname = nanger

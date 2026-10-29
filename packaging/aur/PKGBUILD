@@ -1,0 +1,24 @@
+# Maintainer: Speederhun <https://github.com/Speederhun/Nanger>
+pkgname=nanger
+pkgver=1.2.0
+pkgrel=1
+pkgdesc="File manager and text editor in one (ranger + nano + vim)"
+arch=('any')
+url="https://github.com/Speederhun/Nanger"
+license=('MIT')
+depends=('python')
+makedepends=('git')
+optdepends=('python-pillow: image and PDF previews'
+            'poppler: PDF previews and PDF text'
+            'git: git status in the file manager'
+            'xdg-utils: open files with external programs'
+            'wl-clipboard: system clipboard on Wayland'
+            'xclip: system clipboard on X11')
+source=("$pkgname::git+https://github.com/Speederhun/Nanger.git#tag=v$pkgver")
+sha256sums=('SKIP')
+
+package() {
+  cd "$srcdir/$pkgname"
+  make DESTDIR="$pkgdir" PREFIX=/usr install
+  python -m compileall -q -d /usr/share/nanger "$pkgdir/usr/share/nanger"
+}
