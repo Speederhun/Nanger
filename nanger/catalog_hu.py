@@ -313,4 +313,5 @@ HU = {
     "Mark two files (Space) to compare them": "Jelölj ki két fájlt (Szóköz) az összehasonlításhoz",
     "Unsaved changes from {when} were found. Restore them? (y/n) ": "Mentetlen módosítások találhatók ({when}). Visszaállítod? (i/n) ",
     "Unsaved changes restored — Ctrl+S saves them": "Mentetlen módosítások visszaállítva — Ctrl+S ment",
+    "nanger: the shell cannot follow you to {d} yet. Run once: nanger --install-shell (detected shell: {sh}), then open a new terminal.": "nanger: a shell még nem követ ide: {d}. Futtasd egyszer: nanger --install-shell (felismert shell: {sh}), majd nyiss új terminált.",
 }

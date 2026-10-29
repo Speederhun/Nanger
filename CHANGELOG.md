@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.1
+
+- On exit, if the shell is not set up to follow you (no `nanger --install-shell` yet), a hint with the detected shell is printed.
+
 ## 1.10.0
 
 - **Colour themes**: `T` (or `:theme NAME`) switches between dark, light, solarized-dark,

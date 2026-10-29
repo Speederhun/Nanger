@@ -254,6 +254,13 @@ def main(argv=None):
     finally:
         mouse_off()
         remote.unmount_all()
+    if not choosedir and holder:
+        d = holder[0].final_dir()
+        if d and os.path.realpath(d) != os.path.realpath(os.getcwd()):
+            sh = shell_name()
+            print(tr("nanger: the shell cannot follow you to {d} yet. Run once: nanger --install-shell "
+                     "(detected shell: {sh}), then open a new terminal.").format(d=d, sh=sh),
+                  file=sys.stderr)
     if choosedir and holder:
         d = holder[0].final_dir()
         if d:
