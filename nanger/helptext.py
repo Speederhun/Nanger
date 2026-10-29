@@ -116,7 +116,7 @@ MOVING (arrows or vim keys)
   O   owner (chown): user, user:group, :group  (offers sudo when not permitted)
   =   compare two marked files (or the marked one with the current one), side by side
   M   connect to a remote folder over SSH (user@host:/path, needs sshfs); empty = disconnect
-  T   colour theme menu (dark, light, solarized, gruvbox, nord)
+  T   colour theme menu (dark, light, solarized, gruvbox, nord, hacker)
   F   quick filter: type to narrow the list (Enter opens, Esc clears)
   w   two panels side by side; Tab switches panel, C / W copy / move to the other panel
   Ctrl+T new tab   Ctrl+W close tab   [ ]  or  Alt+1..9  switch tab   (F4 = back to the editor)
@@ -174,7 +174,7 @@ MOZGÁS (nyilak vagy vim-billentyűk)
   O   tulajdonos (chown): user, user:csoport, :csoport  (ha nem engedélyezett, sudo-t kínál)
   =   két kijelölt fájl (vagy a kijelölt és az aktuális) összehasonlítása egymás mellett
   M   távoli mappa SSH-n (user@host:/mappa, sshfs kell); üresen = lecsatlakozás
-  T   színtéma menü (sötét, világos, solarized, gruvbox, nord)
+  T   színtéma menü (sötét, világos, solarized, gruvbox, nord, hacker)
   F   gyors szűrő: gépelj, a lista szűkül (Enter megnyit, Esc töröl)
   w   két panel egymás mellett; Tab vált panelt, C / W másol / mozgat a másik panelre
   Ctrl+T új fül   Ctrl+W fül bezárása   [ ]  vagy  Alt+1..9  fülváltás   (F4 = vissza a szerkesztőhöz)

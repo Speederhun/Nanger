@@ -343,4 +343,6 @@ HU = {
     "Go to temp folder": "Ugrás a temp mappába",
     "Go to home folder": "Ugrás a home mappába",
     "Go to root folder": "Ugrás a gyökérmappába",
+    "No open file yet — open one with e or Enter (F4 comes back to it)": "Még nincs megnyitott fájl — nyiss meg egyet (e vagy Enter), az F4 ide visszahoz",
+    "Open file": "Nyitott fájl",
 }

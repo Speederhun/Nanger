@@ -43,7 +43,7 @@ def help_bar2():
 def split_help():
     return [("Tab", tr("Other panel")), ("C", tr("Copy there")), ("W", tr("Move there")),
             ("w", tr("One panel")), ("F", tr("Filter")), ("Ctrl+T", tr("New tab")),
-            ("F4", tr("Editor")), ("?", tr("Help"))]
+            ("F4", tr("Open file")), ("?", tr("Help"))]
 
 
 def git_mark(xy):

@@ -1373,3 +1373,14 @@ def test_unbound_actions_in_key_map():
     assert actions.bindings("browser", km)[i] == ("Q",)
     km2, _ = actions.reset("browser", km, i)
     assert actions.bindings("browser", km2)[i] is None
+
+
+def test_hacker_theme_and_f4_without_files(spawn, work, env):
+    cfg = Path(env["XDG_CONFIG_HOME"]) / "nanger"
+    cfg.mkdir(parents=True)
+    (cfg / "config.ini").write_text("[general]\ntheme = hacker\n")
+    (work / "a.txt").write_text("x")
+    t = spawn(".")
+    assert t.scr.buffer[20][5].bg == "000000"
+    t.send("\x1bOS")                                # F4: még nincs megnyitott fájl
+    assert "Még nincs megnyitott fájl" in t.text()

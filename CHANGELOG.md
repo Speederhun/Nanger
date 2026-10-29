@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.11.1
+
+- New **hacker** colour theme (green on black); `T` still switches themes, `default` keeps the terminal's own colours.
+- `F4` without an open file now explains how to open one.
+
 ## 1.11.0
 
 - **Quick filter** (`F`): type to narrow the list of the current folder; the match is highlighted,

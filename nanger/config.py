@@ -9,7 +9,7 @@ COLOR_KEYS = ("directory", "executable", "link", "archive", "comment", "string",
               "error", "marked")
 SORT_MODES = ("name", "size", "date", "ext")
 THEME_NAMES = ("default", "dark", "light", "solarized-dark", "solarized-light", "gruvbox",
-               "nord")
+               "nord", "hacker")
 
 DEFAULT_TEXT = """\
 # nanger configuration. Lines starting with # or ; are comments.

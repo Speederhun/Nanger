@@ -246,7 +246,7 @@ class App:
 
     def return_to_buffer(self):
         if not self.buffers:
-            self.info(tr("No open files"))
+            self.info(tr("No open file yet — open one with e or Enter (F4 comes back to it)"))
             return
         target = self.last_buffer if self.last_buffer in self.buffers else self.buffers[-1]
         self.set_view(target)

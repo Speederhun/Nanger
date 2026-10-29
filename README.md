@@ -116,7 +116,7 @@ After that, quitting `nanger` leaves your terminal in the folder you were browsi
 | `F` | quick filter: type to narrow the list |
 | `w` `Tab` `C` `W` | two panels; switch panel; copy / move to the other panel |
 | `Ctrl+T` `Ctrl+W` `[` `]` | new tab, close tab, previous / next tab (`Alt+1`…`9` jumps) |
-| `T` | colour themes: dark, light, solarized-dark/light, gruvbox, nord (saved) |
+| `T` | colour themes: dark, light, solarized-dark/light, gruvbox, nord, hacker (green on black) (saved) |
 
 | Editor | |
 |---|---|
