@@ -45,6 +45,7 @@ class App:
         self.last_results = None
         self.return_view = None     # where the viewer / result list returns to
         self.quit_when_empty = False
+        self.file_mode_only = False  # started on a file and never opened the file manager
         target = os.path.abspath(os.path.expanduser(target))
         if os.path.isdir(target):
             self.browser = Browser(self, target)
@@ -54,6 +55,7 @@ class App:
             self.browser = Browser(self, d if os.path.isdir(d) else os.getcwd())
             self.view = self.browser
             self.quit_when_empty = True
+            self.file_mode_only = True
             self.open_path(target, line=line)
             if self.view is self.browser:  # opened externally / failed: stay in the file manager
                 self.quit_when_empty = False
@@ -151,6 +153,7 @@ class App:
 
     def show_browser(self):
         self.quit_when_empty = False
+        self.file_mode_only = False
         ed = self.current_editor()
         self.view = self.browser
         if ed and ed.path and os.path.dirname(os.path.abspath(ed.path)) == self.browser.cwd:
@@ -484,6 +487,10 @@ class App:
             self.error(tr("No macro recorded (F5 = start recording)"))
         else:
             self.queue.extend(self.macro * max(1, min(times, 10000)))
+
+    def final_dir(self):
+        """Folder to leave the shell in (None when nanger was only used to edit a file)."""
+        return None if self.file_mode_only else self.browser.cwd
 
     def run(self):
         try:

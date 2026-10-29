@@ -1,3 +1,3 @@
 """nanger — file manager and text editor in one (ranger + nano + vim)."""
 
-__version__ = "1.8.2"
+__version__ = "1.9.0"

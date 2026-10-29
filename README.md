@@ -77,6 +77,17 @@ sudo make install        # PREFIX=/usr/local to change
 | Homebrew (macOS) | `brew update && brew upgrade nanger` |
 | `makepkg` / `make install` | pull, then run it again |
 
+## Stay in the folder after quitting
+
+A program cannot change the folder of the shell that started it, so install the tiny shell
+function once:
+
+```sh
+nanger --install-shell     # bash, zsh or fish; then open a new terminal
+```
+
+After that, quitting `nanger` leaves your terminal in the folder you were browsing.
+
 ## Optional dependencies
 
 `python3-pil` (image/PDF preview), `poppler-utils` (PDF), `git` (status), `xdg-utils`

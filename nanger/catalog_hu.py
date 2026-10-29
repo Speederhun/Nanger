@@ -271,4 +271,10 @@ HU = {
     "{files} files, {dirs} folders": "{files} fájl, {dirs} mappa",
     "{n} selected, {size}": "{n} kijelölve, {size}",
     "check why previews or colours do not work": "annak vizsgálata, miért nem működik az előnézet vagy a szín",
+    "Already installed in {path}": "Már telepítve: {path}",
+    "Added to {path}. Open a new terminal (or run: source {path})":
+        "Hozzáadva: {path}. Nyiss új terminált (vagy futtasd: source {path})",
+    "make the shell stay in the folder where you quit":
+        "a shell abban a mappában maradjon, ahol kilépsz",
+    "print the shell function (bash, zsh, fish)": "a shell-függvény kiírása (bash, zsh, fish)",
 }

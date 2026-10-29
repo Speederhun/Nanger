@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.0
+
+- **The shell stays in the folder where you quit.** A program cannot change its parent shell's
+  folder, so run `nanger --install-shell` once (adds a small function to `~/.bashrc`,
+  `~/.zshrc` or fish's `config.fish`); after a new terminal is opened, `nanger` leaves the shell
+  in the folder you were in. Manual setup: `eval "$(command nanger --shell-init bash)"`.
+  `--choosedir=FILE` writes the final folder to a file (for other wrappers).
+
 ## 1.8.2
 
 - Folders are listed without a trailing `/` (they keep their colour).

@@ -24,6 +24,8 @@ def usage():
         "  -v, --version           " + tr("version"),
         "  --init-config           " + tr("create the default configuration file"),
         "  --config-path           " + tr("print the path of the configuration file"),
+        "  --install-shell         " + tr("make the shell stay in the folder where you quit"),
+        "  --shell-init [SHELL]    " + tr("print the shell function (bash, zsh, fish)"),
         "  --doctor                " + tr("check why previews or colours do not work"),
         "",
         tr("Inside the program F1 (editor) or ? (file manager) shows the keys."),
@@ -113,11 +115,75 @@ def mouse_off():
         pass
 
 
+SHELL_INIT = {
+    "bash": r'''nanger() {
+    local tmp rc d
+    tmp="$(mktemp "${TMPDIR:-/tmp}/nanger-cwd.XXXXXX")" || { command nanger "$@"; return; }
+    command nanger --choosedir="$tmp" "$@"
+    rc=$?
+    if [ -s "$tmp" ]; then
+        d="$(cat -- "$tmp")"
+        [ -d "$d" ] && [ "$d" != "$PWD" ] && cd -- "$d"
+    fi
+    rm -f -- "$tmp"
+    return $rc
+}''',
+    "fish": r'''function nanger
+    set -l tmp (mktemp)
+    command nanger --choosedir=$tmp $argv
+    set -l rc $status
+    if test -s $tmp
+        set -l d (cat $tmp)
+        if test -d "$d"; and test "$d" != "$PWD"
+            cd "$d"
+        end
+    end
+    rm -f $tmp
+    return $rc
+end''',
+}
+SHELL_INIT["zsh"] = SHELL_INIT["bash"]
+
+
+def shell_name(arg=None):
+    name = os.path.basename(arg or os.environ.get("SHELL", "bash"))
+    return name if name in SHELL_INIT else "bash"
+
+
+def install_shell():
+    """Append the `eval "$(nanger --shell-init)"` line to the shell's startup file."""
+    sh = shell_name()
+    home = os.path.expanduser("~")
+    if sh == "fish":
+        rc, line = os.path.join(home, ".config", "fish", "config.fish"), "nanger --shell-init fish | source"
+    elif sh == "zsh":
+        rc, line = os.path.join(home, ".zshrc"), 'eval "$(command nanger --shell-init zsh)"'
+    else:
+        rc = os.path.join(home, ".bashrc")
+        if sys.platform == "darwin" and not os.path.exists(rc):
+            rc = os.path.join(home, ".bash_profile")
+        line = 'eval "$(command nanger --shell-init bash)"'
+    try:
+        text = open(rc, encoding="utf-8").read() if os.path.exists(rc) else ""
+        if "nanger --shell-init" in text:
+            print(tr("Already installed in {path}").format(path=rc))
+            return 0
+        os.makedirs(os.path.dirname(rc), exist_ok=True)
+        with open(rc, "a", encoding="utf-8") as f:
+            f.write("\n# nanger: stay in the folder you left the file manager in\n%s\n" % line)
+    except OSError as e:
+        print(tr("Failed: {error}").format(error=e.strerror), file=sys.stderr)
+        return 1
+    print(tr("Added to {path}. Open a new terminal (or run: source {path})").format(path=rc))
+    return 0
+
+
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     config.load()
     i18n.set_language(i18n.detect(config.settings.language))
     target, line = ".", None
+    choosedir = None
     paths = []
     for a in args:
         if a in ("-h", "--help"):
@@ -128,6 +194,16 @@ def main(argv=None):
             return 0
         if a == "--doctor":
             return doctor()
+        if a == "--install-shell":
+            return install_shell()
+        if a.startswith("--shell-init"):
+            idx = args.index(a)
+            nxt = args[idx + 1] if idx + 1 < len(args) and not args[idx + 1].startswith("-") else None
+            print(SHELL_INIT[shell_name(nxt)])
+            return 0
+        if a.startswith("--choosedir="):
+            choosedir = a.split("=", 1)[1]
+            continue
         if a == "--config-path":
             print(config.config_path())
             return 0
@@ -151,6 +227,8 @@ def main(argv=None):
     setup_locale()
     os.environ.setdefault("ESCDELAY", "25")
 
+    holder = []
+
     def run(scr):
         from .app import App
         curses.raw()
@@ -158,10 +236,20 @@ def main(argv=None):
         scr.keypad(True)
         init_colors()
         mouse_on()
-        App(scr, target, line).run()
+        app = App(scr, target, line)
+        holder.append(app)
+        app.run()
 
     try:
         curses.wrapper(run)
     finally:
         mouse_off()
+    if choosedir and holder:
+        d = holder[0].final_dir()
+        if d:
+            try:
+                with open(choosedir, "w", encoding="utf-8") as f:
+                    f.write(d)
+            except OSError:
+                pass
     return 0

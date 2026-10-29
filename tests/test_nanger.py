@@ -1027,3 +1027,37 @@ def test_doctor_reports_environment(env):
     import subprocess
     out = subprocess.run([NANGER, "--doctor"], capture_output=True, text=True, env=env).stdout
     assert "nanger 1." in out and "Pillow:" in out and "graphics protocol:" in out
+
+
+def test_shell_wrapper_leaves_shell_in_last_folder(work, env, tmp_path):
+    (work / "sub").mkdir()
+    (work / "sub" / "x.txt").write_text("x")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "nanger").symlink_to(NANGER)
+    e = dict(env, PATH=f"{bindir}:{os.environ['PATH']}", PS1="$ ")
+    p = pexpect.spawn("bash", ["--norc", "-i"], cwd=str(work), env=e, dimensions=(ROWS, COLS),
+                      encoding="utf-8")
+    p.sendline('eval "$(command nanger --shell-init bash)"')
+    time.sleep(0.5)
+    p.sendline("nanger")
+    time.sleep(1.2)
+    p.send("\r")        # be a "sub" mappába (az első elem)
+    time.sleep(0.5)
+    p.send("q")
+    time.sleep(0.8)
+    p.sendline("echo CWD=$(pwd)")
+    p.expect(r"CWD=(\S+)", timeout=5)
+    p.expect(r"CWD=(\S+)", timeout=5)
+    assert p.match.group(1).endswith("/work/sub")
+    p.terminate(force=True)
+
+
+def test_install_shell_is_idempotent(env, tmp_path):
+    import subprocess
+    e = dict(env, SHELL="/bin/bash", HOME=str(tmp_path / "h2"))
+    (tmp_path / "h2").mkdir()
+    for _ in range(2):
+        subprocess.run([NANGER, "--install-shell"], env=e, capture_output=True, text=True)
+    rc = (tmp_path / "h2" / ".bashrc").read_text()
+    assert rc.count("nanger --shell-init") == 1
