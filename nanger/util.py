@@ -2,6 +2,7 @@
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from .i18n import tr
@@ -103,6 +104,8 @@ def disk_sig(path):
 
 def set_system_clipboard(text):
     cmds = []
+    if sys.platform == "darwin":
+        cmds.append(["pbcopy"])
     if os.environ.get("WAYLAND_DISPLAY"):
         cmds.append(["wl-copy"])
     if os.environ.get("DISPLAY"):

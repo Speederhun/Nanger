@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import zipfile
@@ -60,7 +61,14 @@ def file_kind(p):
     return "binary" if b"\0" in head else "text"
 
 
+def opener():
+    """The desktop "open" command: `open` on macOS, `xdg-open` elsewhere."""
+    return "open" if sys.platform == "darwin" else "xdg-open"
+
+
 def has_gui():
+    if sys.platform == "darwin":   # no DISPLAY on a Mac; not usable over SSH
+        return shutil.which("open") is not None and not os.environ.get("SSH_CONNECTION")
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) \
         and shutil.which("xdg-open") is not None
 

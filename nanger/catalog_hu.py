@@ -241,4 +241,8 @@ HU = {
     "Shell": "Shell",
     "Line numbers": "Sorszámok",
     "Customize": "Testreszab",
+    "Sort by: n = name, d = date, s = size, e = extension, r = reverse ":
+        "Rendezés: n = név, d = dátum, s = méret, e = kiterjesztés, r = fordított ",
+    "reversed": "fordítva",
+    "name, A–Z": "név, A–Z",
 }

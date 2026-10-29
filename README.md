@@ -50,6 +50,17 @@ yay -S nanger          # AUR
 cd packaging/arch && makepkg -si
 ```
 
+### macOS (Homebrew)
+
+```sh
+brew tap Speederhun/nanger https://github.com/Speederhun/Nanger
+brew install nanger
+```
+
+(For a private repository Homebrew needs git access: `gh auth login` or a
+`HOMEBREW_GITHUB_API_TOKEN`.) Without Homebrew: `sudo make install PREFIX=/usr/local`.
+In Terminal.app use *Settings → Profiles → Keyboard → Use Option as Meta key* for Alt shortcuts.
+
 ### From source
 
 ```sh
@@ -63,6 +74,7 @@ sudo make install        # PREFIX=/usr/local to change
 | apt repository | `sudo apt update && sudo apt upgrade` |
 | downloaded `.deb` | `sudo apt install ./nanger_<new>_all.deb` |
 | AUR | `yay -Syu` |
+| Homebrew (macOS) | `brew update && brew upgrade nanger` |
 | `makepkg` / `make install` | pull, then run it again |
 
 ## Optional dependencies
@@ -81,7 +93,8 @@ sudo make install        # PREFIX=/usr/local to change
 | `y` `x` `p` `Space` | copy, cut, paste, mark |
 | `/` `f` | find by name / grep in files |
 | `m` `'` | set / jump to bookmark |
-| `s` `.` `v` `o` | sort, hidden files, built-in viewer, external open |
+| `s` | sort menu: `n` name, `d` date, `s` size, `e` extension, `r` reverse |
+| `.` `v` `o` | hidden files, built-in viewer, external open |
 
 | Editor | |
 |---|---|

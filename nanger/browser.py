@@ -20,9 +20,10 @@ from .util import human, unique_path
 SORT_IDS = ("name", "size", "date", "ext")
 
 
-def sort_label(mode):
-    return {"name": tr("name"), "size": tr("size, largest first"),
+def sort_label(mode, reverse=False):
+    base = {"name": tr("name, A–Z"), "size": tr("size, largest first"),
             "date": tr("modified, newest first"), "ext": tr("extension")}[mode]
+    return base + (" · " + tr("reversed") if reverse else "")
 
 
 def help_bar1():
@@ -58,6 +59,7 @@ class Browser:
         self.prev_cwd = None
         self.hidden = settings.show_hidden
         self.sort = settings.sort
+        self.reverse = settings.sort_reverse
         self.sel = self.top = 0
         self.entries = []
         self.tagged = set()
@@ -75,7 +77,7 @@ class Browser:
             names = os.listdir(d)
         except OSError:
             return None
-        ckey = (mt, self.hidden, self.sort, len(names))
+        ckey = (mt, self.hidden, self.sort, self.reverse, len(names))
         hit = self._ls_cache.get(d)
         if hit and hit[0] == ckey:
             return hit[1]
@@ -86,18 +88,22 @@ class Browser:
             p = os.path.join(d, n)
             try:
                 st = os.stat(p)
-                isdir = os.path.isdir(p)
             except OSError:
-                return (False, 0, n.casefold())
+                return (0, n.casefold())
             if self.sort == "size":
-                return (not isdir, -st.st_size, n.casefold())
+                return (-st.st_size, n.casefold())
             if self.sort == "date":
-                return (not isdir, -st.st_mtime, n.casefold())
+                return (-st.st_mtime, n.casefold())
             if self.sort == "ext":
-                return (not isdir, os.path.splitext(n)[1].casefold(), n.casefold())
-            return (not isdir, n.casefold())
+                return (os.path.splitext(n)[1].casefold(), n.casefold())
+            return (n.casefold(),)
 
-        names = sorted(names, key=key)
+        dirs = [n for n in names if os.path.isdir(os.path.join(d, n))]
+        isdir = set(dirs)
+        files = [n for n in names if n not in isdir]
+        # folders always stay on top; "reverse" flips the order inside each group
+        names = sorted(dirs, key=key, reverse=self.reverse) + \
+            sorted(files, key=key, reverse=self.reverse)
         self._ls_cache[d] = (ckey, names)
         return names
 
@@ -180,9 +186,21 @@ class Browser:
             if cur and not os.path.isdir(cur):
                 app.open_external(cur)
         elif k == "s":
-            self.sort = SORT_IDS[(SORT_IDS.index(self.sort) + 1) % len(SORT_IDS)]
-            self.refresh(os.path.basename(cur) if cur else None)
-            app.info(tr("Sorting: {mode}").format(mode=sort_label(self.sort)))
+            c = app.read_key(tr("Sort by: n = name, d = date, s = size, e = extension, "
+                                "r = reverse "))
+            ids = {"n": "name", "d": "date", "s": "size", "e": "ext"}
+            if c == "r":
+                self.reverse = not self.reverse
+            elif c in ids:
+                if ids[c] == self.sort:
+                    self.reverse = not self.reverse   # same key again: flip the direction
+                else:
+                    self.sort, self.reverse = ids[c], False
+            else:
+                c = None
+            if c:
+                self.refresh(os.path.basename(cur) if cur else None)
+                app.info(tr("Sorting: {mode}").format(mode=sort_label(self.sort, self.reverse)))
         elif k == "n":
             name = app.prompt(tr("New file name: "))
             if name:
@@ -460,7 +478,7 @@ class Browser:
             st = os.stat(p)
         except OSError:
             return ("lines", [(tr("[not available]"), A["err"])], "")
-        key = (p, st.st_mtime_ns, th, w3, self.hidden, self.sort)
+        key = (p, st.st_mtime_ns, th, w3, self.hidden, self.sort, self.reverse)
         if key == self._pv_key:
             return self._pv
         kind = file_kind(p)
@@ -590,8 +608,10 @@ class Browser:
                     self.sel + 1, n)
                 if pcap and pcap != human(st.st_size):
                     info += "   " + pcap
-                if self.sort != "name":
-                    info += "   " + tr("sort: {mode}").format(mode=sort_label(self.sort).split(",")[0])
+                if self.sort != "name" or self.reverse:
+                    info += "   " + tr("sort: {mode}").format(
+                        mode=sort_label(self.sort, self.reverse).split(",")[0].split(" · ")[0]
+                        + (" ↑" if self.reverse else ""))
                 if self.tagged:
                     info += "   " + tr("{n} marked").format(n=len(self.tagged))
                 if self.marked:

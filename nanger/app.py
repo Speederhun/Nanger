@@ -115,7 +115,7 @@ class App:
                           "can be opened here"))
             return
         try:
-            subprocess.Popen(["xdg-open", path], stdin=subprocess.DEVNULL,
+            subprocess.Popen([media.opener(), path], stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              start_new_session=True)
             self.info(tr("Opened with an external program: {name}").format(

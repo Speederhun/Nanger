@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from urllib.parse import quote
 
@@ -20,9 +21,24 @@ def trash_dir():
     return os.path.join(base, "Trash")
 
 
+def _mac_trash(path):
+    """macOS: move into ~/.Trash (Finder can "Put Back" only for its own deletions)."""
+    tdir = os.path.join(os.path.expanduser("~"), ".Trash")
+    os.makedirs(tdir, exist_ok=True)
+    name = os.path.basename(path)
+    dest, i = os.path.join(tdir, name), 1
+    while os.path.lexists(dest):
+        i += 1
+        root, ext = os.path.splitext(name)
+        dest = os.path.join(tdir, "%s %d%s" % (root, i, ext))
+    shutil.move(path, dest)
+
+
 def move_to_trash(path):
-    """Move to the freedesktop.org trash in the user's data directory."""
+    """Move to the freedesktop.org trash in the user's data directory (macOS: ~/.Trash)."""
     path = os.path.abspath(path)
+    if sys.platform == "darwin":
+        return _mac_trash(path)
     files = os.path.join(trash_dir(), "files")
     infos = os.path.join(trash_dir(), "info")
     os.makedirs(files, mode=0o700, exist_ok=True)
@@ -53,7 +69,7 @@ def trash(path):
         other_disk = os.lstat(path).st_dev != os.stat(os.path.expanduser("~")).st_dev
     except OSError:
         other_disk = False
-    if other_disk and shutil.which("gio"):
+    if other_disk and sys.platform != "darwin" and shutil.which("gio"):
         r = subprocess.run(["gio", "trash", "--", os.path.abspath(path)],
                            capture_output=True, timeout=120)
         if r.returncode == 0:

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0
+
+- **macOS support:** Homebrew formula (`brew tap Speederhun/nanger https://github.com/Speederhun/Nanger`,
+  `brew install nanger`), `open` instead of `xdg-open`, `pbcopy` clipboard, trash into `~/.Trash`,
+  Option+arrows, portable `make install`.
+- **Sort menu:** `s` asks `n` name, `d` date, `s` size, `e` extension, `r` reverse (pressing the
+  current key again also reverses). Folders always stay on top. `sort_reverse` in the config.
+
 ## 1.5.0
 
 - **Mouse support:** click to select, double-click to open, wheel to scroll, right-click for

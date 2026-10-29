@@ -43,6 +43,7 @@ ESCAPES.update({
     "[[A": curses.KEY_F1, "[[B": curses.KEY_F2, "[[C": curses.KEY_F3,
     "[[D": curses.KEY_F4, "[[E": curses.KEY_F5,
 })
+ESCAPES.update({"b": K_ALT_LEFT, "f": K_ALT_RIGHT})   # macOS Terminal/iTerm: Option+arrows
 for _d in range(1, 10):
     ESCAPES[str(_d)] = K_ALT_DIGIT + _d  # Alt+1 .. Alt+9
 

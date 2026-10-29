@@ -109,7 +109,7 @@ MOVING (arrows or vim keys)
   g / G   top / bottom of the list          ~   home folder
   c       jump to a typed path              /   search by name
   .       show / hide hidden files
-  s       change sorting: name > size > date > extension
+  s       sort menu: n name, d date, s size, e extension, r reverse (same key again = reverse)
   m + key   set a bookmark here     ' + key   jump to a bookmark   ' + ?   list bookmarks
   K / F9    change the keyboard shortcuts (menu, saved to the config file)
   ' + '     back to the previous folder
@@ -152,7 +152,7 @@ MOZGÁS (nyilak vagy vim-billentyűk)
   g / G   lista eleje / vége              ~   saját mappa (home)
   c       ugrás egy beírt elérési útra    /   keresés név alapján
   .       rejtett fájlok mutatása / elrejtése
-  s       rendezés váltása: név → méret → dátum → kiterjesztés
+  s       rendezés menü: n név, d dátum, s méret, e kiterjesztés, r fordított (ugyanaz újra = fordítva)
   m + billentyű   könyvjelző ide   ' + billentyű   ugrás a könyvjelzőre   ' + ?   lista
   K / F9     gyorsbillentyűk módosítása (menü, a beállítófájlba mentődik)
   ' + '   vissza az előző mappába

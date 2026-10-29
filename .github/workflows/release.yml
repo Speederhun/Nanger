@@ -52,6 +52,18 @@ jobs:
             --notes-file <( { sed -n '/^## /{p;:a;n;/^## /q;p;ba}' CHANGELOG.md | sed '1d'
               printf '\n### Downloads\n\n| Device | File |\n|---|---|\n| PC (Intel/AMD, 64-bit) | `nanger_%s_amd64.deb` |\n| ARM 64-bit (Raspberry Pi 3/4/5, Apple-silicon VMs, ARM servers) | `nanger_%s_arm64.deb` |\n| ARM 32-bit (older Raspberry Pi OS) | `nanger_%s_armhf.deb` |\n| Any CPU | `nanger_%s_all.deb` |\n\nInstall: `sudo apt install ./nanger_*.deb`\n' "${{ steps.v.outputs.version }}" "${{ steps.v.outputs.version }}" "${{ steps.v.outputs.version }}" "${{ steps.v.outputs.version }}"; } )
 
+      - name: Point the Homebrew formula at the new tag
+        if: steps.v.outputs.new == 'yes'
+        run: |
+          VERSION="${{ steps.v.outputs.version }}"
+          sed -i "s|tag: \"v[0-9.]*\"|tag: \"v$VERSION\"|" Formula/nanger.rb
+          if ! git diff --quiet Formula/nanger.rb; then
+            git config user.name "github-actions"; git config user.email "actions@github.com"
+            git add Formula/nanger.rb
+            git commit -qm "Homebrew formula: v$VERSION [skip ci]"
+            git push origin HEAD:main
+          fi
+
       - name: Check optional secrets
         id: sec
         env:

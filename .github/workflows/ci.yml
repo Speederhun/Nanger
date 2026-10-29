@@ -23,6 +23,22 @@ jobs:
       - run: python -m compileall -q nanger
       - run: python -m pytest -q tests
 
+  macos:
+    runs-on: macos-latest
+    continue-on-error: true      # the Mac port is new: report, but do not block
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: brew install poppler
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q tests
+      - name: Install and run
+        run: |
+          sudo make install PREFIX=/usr/local
+          nanger --version
+
   package:
     runs-on: ubuntu-latest
     steps:

@@ -24,6 +24,8 @@ line_numbers = yes
 show_hidden = no
 # default sorting: name, size, date or ext
 sort = name
+# reverse the sort order (folders always stay on top)
+sort_reverse = no
 # mouse support (click, double-click, wheel); hold Shift to select text with the terminal
 mouse = yes
 # image previews: auto, kitty, iterm, sixel (real pixels) or blocks (coloured text cells)
@@ -61,6 +63,7 @@ class Settings:
         self.line_numbers = True
         self.show_hidden = False
         self.sort = "name"
+        self.sort_reverse = False
         self.git = True
         self.graphics = "auto"
         self.mouse = True
@@ -139,6 +142,8 @@ def load(path=None):
                 settings.graphics = raw.strip().lower()
             elif key == "git":
                 settings.git = _bool(raw)
+            elif key == "sort_reverse":
+                settings.sort_reverse = _bool(raw)
             elif key == "sort":
                 if raw.strip().lower() not in SORT_MODES:
                     raise ValueError(raw)

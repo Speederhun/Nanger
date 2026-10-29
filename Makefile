@@ -8,9 +8,10 @@ install:
 	install -d $(DESTDIR)$(PREFIX)/bin
 	sed 's|@LIBDIR@|$(LIBDIR)|' bin/nanger.in > $(DESTDIR)$(PREFIX)/bin/nanger
 	chmod 755 $(DESTDIR)$(PREFIX)/bin/nanger
-	install -Dm644 nanger.1 $(DESTDIR)$(PREFIX)/share/man/man1/nanger.1
-	install -Dm644 nanger.hu.1 $(DESTDIR)$(PREFIX)/share/man/hu/man1/nanger.1
-	install -Dm644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/nanger/LICENSE
+	install -d $(DESTDIR)$(PREFIX)/share/man/man1 $(DESTDIR)$(PREFIX)/share/man/hu/man1 $(DESTDIR)$(PREFIX)/share/licenses/nanger
+	install -m644 nanger.1 $(DESTDIR)$(PREFIX)/share/man/man1/nanger.1
+	install -m644 nanger.hu.1 $(DESTDIR)$(PREFIX)/share/man/hu/man1/nanger.1
+	install -m644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/nanger/LICENSE
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/nanger

@@ -142,6 +142,7 @@ def test_file_kind(work):
                      "e.tar.gz": "archive", "f.docx": "external", "g": "dir", "script": "text"}
 
 
+@pytest.mark.skipif(__import__('sys').platform == 'darwin', reason="freedesktop trash is not used on macOS")
 def test_move_to_trash_follows_freedesktop_spec(work, tmp_path, monkeypatch):
     m = load_module()
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
@@ -287,6 +288,7 @@ def test_mkdir_newfile_rename_copy(spawn, work):
     assert (work / "mappa" / "j2.md").exists() and (work / "j2.md").exists()
 
 
+@pytest.mark.skipif(__import__('sys').platform == 'darwin', reason="freedesktop trash is not used on macOS")
 def test_delete_goes_to_trash(spawn, work, tmp_path):
     (work / "torlendo.txt").write_text("fontos")
     t = spawn(".")
@@ -299,6 +301,7 @@ def test_delete_goes_to_trash(spawn, work, tmp_path):
     assert trashed[0].read_text() == "fontos"
 
 
+@pytest.mark.skipif(__import__('sys').platform == 'darwin', reason="freedesktop trash is not used on macOS")
 def test_permanent_delete_needs_two_confirmations(spawn, work, tmp_path):
     (work / "a.txt").write_text("x")
     t = spawn(".")
@@ -330,8 +333,50 @@ def test_sort_cycle(spawn, work):
 
     assert order() == ["a_small", "b_big", "c_mid"]
     t.send("s")
+    t.send("s")                                  # méret szerint: a legnagyobb elöl
     assert "méret" in t.text()
     assert order() == ["b_big", "c_mid", "a_small"]
+    t.send("s")
+    t.send("s")                                  # ugyanaz újra: fordított
+    assert order() == ["a_small", "c_mid", "b_big"]
+    t.send("s")
+    t.send("n")                                  # vissza név szerint
+    assert order() == ["a_small", "b_big", "c_mid"]
+
+
+def test_sort_by_date_reverse_and_folders_on_top(spawn, work):
+    import os
+    for i, n in enumerate(("a.txt", "b.txt", "c.txt")):
+        (work / n).write_text("x")
+        os.utime(work / n, (1_000_000 + i * 100, 1_000_000 + i * 100))
+    (work / "zmappa").mkdir()
+    t = spawn(".")
+    t.send("s")
+    t.send("d")                                  # dátum: legújabb elöl
+    rows = {n: y for y in range(1, 10) for n in ("a.txt", "b.txt", "c.txt", "zmappa")
+            if n in t.row(y)[17:57]}
+    assert rows["zmappa"] < rows["c.txt"] < rows["b.txt"] < rows["a.txt"]
+    t.send("s")
+    t.send("r")                                  # fordítva: a legrégebbi elöl, a mappa így is fent
+    rows = {n: y for y in range(1, 10) for n in ("a.txt", "b.txt", "c.txt", "zmappa")
+            if n in t.row(y)[17:57]}
+    assert rows["zmappa"] < rows["a.txt"] < rows["b.txt"] < rows["c.txt"]
+
+
+def test_macos_helpers(work, tmp_path, monkeypatch):
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from nanger import fsops, media
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("HOME", str(tmp_path / "mac"))
+    assert media.opener() == "open"
+    for _ in range(2):
+        f = work / "régi.txt"
+        f.write_text("x")
+        fsops.trash(str(f))
+        assert not f.exists()
+    names = sorted(p.name for p in (tmp_path / "mac" / ".Trash").iterdir())
+    assert names == ["régi 2.txt", "régi.txt"]
 
 
 # ------------------------------------------------------------------ előnézetek
