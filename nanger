@@ -12,6 +12,8 @@ nanger — ranger + nano + vim egy eszközben.
 Használat:  nanger [mappa | fájl]
 """
 import curses
+import functools
+import io
 import locale
 import os
 import re
@@ -19,10 +21,19 @@ import select
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
-from collections import deque
+import time
+import zipfile
+from collections import OrderedDict, deque
+from urllib.parse import quote
 
-VERSION = "1.0.0"
+try:  # opcionális: kép- és PDF-előnézethez
+    from PIL import Image
+except Exception:  # noqa: BLE001 - bármilyen import-hiba esetén nincs előnézet
+    Image = None
+
+VERSION = "1.1.0"
 
 os.environ.setdefault("ESCDELAY", "25")
 locale.setlocale(locale.LC_ALL, "")
@@ -1061,12 +1072,374 @@ class Editor:
         return (1 + self.cy - self.top, gutter + dc - self.left)
 
 
+# ---------------------------------------------------------- képek, PDF, archívumok
+
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".jfif", ".gif", ".bmp", ".webp", ".tif", ".tiff",
+             ".ico", ".ppm", ".pgm", ".pbm"}
+ARCHIVE_EXT = (".zip", ".jar", ".whl", ".apk", ".tar", ".tar.gz", ".tgz", ".tar.bz2",
+               ".tbz2", ".tar.xz", ".txz")
+EXTERNAL_EXT = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".doc", ".xls", ".ppt",
+                ".rtf", ".epub", ".mp3", ".mp4", ".mkv", ".avi", ".mov", ".webm", ".flac",
+                ".ogg", ".wav", ".m4a", ".opus"}
+_CUBE = (0, 95, 135, 175, 215, 255)
+_RENDER_CACHE = OrderedDict()
+_PAIRS = {}
+
+
+def file_kind(p):
+    """dir | pdf | image | archive | external | text | binary"""
+    if os.path.isdir(p):
+        return "dir"
+    low = p.lower()
+    ext = os.path.splitext(low)[1]
+    if ext == ".pdf":
+        return "pdf"
+    if ext in IMAGE_EXT:
+        return "image"
+    if ext in EXTERNAL_EXT:
+        return "external"
+    if low.endswith(ARCHIVE_EXT):
+        return "archive"
+    try:
+        with open(p, "rb") as f:
+            head = f.read(8192)
+    except OSError:
+        return "binary"
+    return "binary" if b"\0" in head else "text"
+
+
+def has_gui():
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) \
+        and shutil.which("xdg-open") is not None
+
+
+def is_utf8():
+    return "utf" in (locale.getpreferredencoding(False) or "").lower()
+
+
+@functools.lru_cache(maxsize=1 << 16)
+def rgb_to_256(r, g, b):
+    def lv(c):
+        return 0 if c < 48 else 1 if c < 115 else (c - 35) // 40
+
+    ri, gi, bi = lv(r), lv(g), lv(b)
+    avg = (r + g + b) // 3
+    gl = 23 if avg > 238 else max(0, (avg - 3) // 10)
+    gv = 8 + 10 * gl
+    d_cube = (_CUBE[ri] - r) ** 2 + (_CUBE[gi] - g) ** 2 + (_CUBE[bi] - b) ** 2
+    d_gray = (gv - r) ** 2 + (gv - g) ** 2 + (gv - b) ** 2
+    return 232 + gl if d_gray < d_cube else 16 + 36 * ri + 6 * gi + bi
+
+
+def quant(px):
+    r, g, b = px[:3]
+    if curses.COLORS >= 256:
+        return rgb_to_256(r, g, b)
+    return int(r > 127) | int(g > 127) << 1 | int(b > 127) << 2
+
+
+def render_grid(img, cols, rows):
+    """PIL-kép → félblokkos cellák: soronként (felső szín, alsó szín) párok."""
+    rs = getattr(Image, "Resampling", Image)
+    img = img.convert("RGBA")
+    if img.getchannel("A").getextrema()[0] < 255:
+        img = Image.alpha_composite(Image.new("RGBA", img.size, (0, 0, 0, 255)), img)
+    img = img.convert("RGB")
+    w, h = img.size
+    scale = min(cols / w, rows * 2 / h)
+    nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
+    nh += nh % 2
+    method = rs.LANCZOS if scale < 1 else (rs.NEAREST if scale >= 2 else rs.BILINEAR)
+    px = img.resize((nw, nh), method).load()
+    return [[(quant(px[x, y]), quant(px[x, y + 1])) for x in range(nw)]
+            for y in range(0, nh, 2)]
+
+
+def color_attr(fg, bg):
+    key = (fg, bg)
+    a = _PAIRS.get(key)
+    if a is None:
+        n = 10 + len(_PAIRS)
+        if n >= curses.COLOR_PAIRS:
+            return 0
+        curses.init_pair(n, fg, bg)
+        a = _PAIRS[key] = curses.color_pair(n)
+    return a
+
+
+def draw_grid(scr, y0, x0, grid):
+    h, w = scr.getmaxyx()
+    for r, row in enumerate(grid):
+        y = y0 + r
+        if y >= h:
+            break
+        for c, (fg, bg) in enumerate(row):
+            if x0 + c >= w:
+                break
+            try:
+                scr.addstr(y, x0 + c, "▀", color_attr(fg, bg))
+            except curses.error:
+                pass
+
+
+@functools.lru_cache(maxsize=64)
+def pdf_pages(path, mtime):
+    try:
+        out = subprocess.run(["pdfinfo", path], capture_output=True, text=True,
+                             timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    m = re.search(r"^Pages:\s+(\d+)", out, re.M)
+    return int(m.group(1)) if m else 0
+
+
+@functools.lru_cache(maxsize=32)
+def pdf_text(path, mtime, page):
+    exe = shutil.which("pdftotext")
+    if not exe:
+        raise RuntimeError("nincs pdftotext (poppler-utils)")
+    r = subprocess.run([exe, "-f", str(page), "-l", str(page), "-layout", path, "-"],
+                       capture_output=True, timeout=20)
+    if r.returncode != 0:
+        msg = r.stderr.decode("utf-8", "replace").strip().splitlines()
+        raise RuntimeError(msg[-1] if msg else "a PDF szövege nem olvasható")
+    return r.stdout.decode("utf-8", "replace").replace("\f", "")
+
+
+def pdf_page_image(path, page, px):
+    exe = shutil.which("pdftoppm")
+    if not exe:
+        raise RuntimeError("nincs pdftoppm (poppler-utils)")
+    # ideiglenes fájlba renderelünk: a stdout-ra írás nem minden poppler-verzióban megy
+    with tempfile.TemporaryDirectory(prefix="nanger-") as tmp:
+        root = os.path.join(tmp, "page")
+        r = subprocess.run([exe, "-png", "-singlefile", "-f", str(page), "-l", str(page),
+                            "-scale-to-x", str(px), "-scale-to-y", "-1", path, root],
+                           capture_output=True, timeout=20)
+        if r.returncode != 0 or not os.path.exists(root + ".png"):
+            msg = r.stderr.decode("utf-8", "replace").strip().splitlines()
+            raise RuntimeError(msg[-1] if msg else "a PDF nem jeleníthető meg")
+        with open(root + ".png", "rb") as f:
+            img = Image.open(io.BytesIO(f.read()))
+            img.load()
+    return img
+
+
+def cached_render(kind, path, page, cols, rows, lazy=False):
+    """(cellák, felirat) — lazy=True esetén None, ha még nincs a gyorsítótárban."""
+    st = os.stat(path)
+    key = (kind, path, st.st_mtime_ns, st.st_size, page, cols, rows)
+    hit = _RENDER_CACHE.get(key)
+    if hit is not None:
+        _RENDER_CACHE.move_to_end(key)
+        return hit
+    if lazy:
+        return None
+    if Image is None:
+        raise RuntimeError("képekhez kell a Pillow (python3-pil / python-pillow)")
+    if kind == "pdf":
+        img = pdf_page_image(path, page, min(2400, max(300, cols * 4)))
+        pages = pdf_pages(path, st.st_mtime_ns)
+        caption = f"PDF  {page}/{pages} oldal" if pages else "PDF"
+    else:
+        img = Image.open(path)
+        caption = f"{img.format or 'kép'}  {img.width}×{img.height}"
+        img.draft("RGB", (cols * 4, rows * 8))
+    res = (render_grid(img, cols, rows), caption)
+    _RENDER_CACHE[key] = res
+    while len(_RENDER_CACHE) > 12:
+        _RENDER_CACHE.popitem(last=False)
+    return res
+
+
+def archive_lines(p, limit):
+    """[(szöveg, attribútum)], van-e még több elem"""
+    out, more = [], False
+    try:
+        if p.lower().endswith((".zip", ".jar", ".whl", ".apk")):
+            with zipfile.ZipFile(p) as z:
+                infos = z.infolist()
+                more = len(infos) > limit
+                for zi in infos[:limit]:
+                    size = "" if zi.is_dir() else human(zi.file_size)
+                    out.append((f"{size:>7}  {clean(zi.filename)}", 0))
+        else:
+            with tarfile.open(p) as t:
+                for m in t:
+                    if len(out) >= limit:
+                        more = True
+                        break
+                    size = "" if m.isdir() else human(m.size)
+                    out.append((f"{size:>7}  {clean(m.name)}{'/' if m.isdir() else ''}", 0))
+    except (OSError, EOFError, zipfile.BadZipFile, tarfile.TarError) as e:
+        return [(f"[az archívum nem olvasható: {e}]", A["err"])], False
+    if not out:
+        out = [("(üres archívum)", A["ln"])]
+    return out, more
+
+
+def trash_dir():
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"),
+                                                           ".local", "share")
+    return os.path.join(base, "Trash")
+
+
+def move_to_trash(path):
+    """Szabványos (freedesktop.org) kuka a saját mappában."""
+    path = os.path.abspath(path)
+    files = os.path.join(trash_dir(), "files")
+    infos = os.path.join(trash_dir(), "info")
+    os.makedirs(files, mode=0o700, exist_ok=True)
+    os.makedirs(infos, mode=0o700, exist_ok=True)
+    name = os.path.basename(path)
+    dest, i = os.path.join(files, name), 1
+    while os.path.lexists(dest) or os.path.lexists(os.path.join(infos, os.path.basename(dest) + ".trashinfo")):
+        i += 1
+        dest = os.path.join(files, f"{name}.{i}")
+    info = os.path.join(infos, os.path.basename(dest) + ".trashinfo")
+    with open(info, "w", encoding="utf-8") as f:
+        f.write("[Trash Info]\nPath=%s\nDeletionDate=%s\n"
+                % (quote(path), time.strftime("%Y-%m-%dT%H:%M:%S")))
+    try:
+        shutil.move(path, dest)
+    except BaseException:
+        try:
+            os.unlink(info)
+        except OSError:
+            pass
+        raise
+
+
+def trash(path):
+    """Kukába teszi; másik köteten lévő fájlt a gio-ra bízza, ha van."""
+    try:
+        other_disk = os.lstat(path).st_dev != os.stat(os.path.expanduser("~")).st_dev
+    except OSError:
+        other_disk = False
+    if other_disk and shutil.which("gio"):
+        r = subprocess.run(["gio", "trash", "--", os.path.abspath(path)],
+                           capture_output=True, timeout=120)
+        if r.returncode == 0:
+            return
+    move_to_trash(path)
+
+
+# ---------------------------------------------------------- nézegető
+
+VIEWER_HELP = [("←/→", "Előző/következő"), ("Home/End", "Első/utolsó"), ("t", "Szöveg/kép"),
+               ("o", "Külső program"), ("q", "Vissza")]
+
+
+class Viewer:
+    """Teljes képernyős kép- és PDF-nézegető (grafikus felület nélkül is működik)."""
+
+    def __init__(self, app, path, kind):
+        self.app, self.path, self.kind = app, path, kind
+        st = os.stat(path)
+        self.page = 1
+        self.pages = pdf_pages(path, st.st_mtime_ns) if kind == "pdf" else 1
+        self.scroll = 0
+        self.err = ""
+        self.text_mode = kind == "pdf" and bool(shutil.which("pdftotext"))
+        self.siblings = []
+        if kind == "image":
+            d = os.path.dirname(path)
+            for n in app.browser.listdir(d) or []:
+                f = os.path.join(d, n)
+                if os.path.splitext(n.lower())[1] in IMAGE_EXT and os.path.isfile(f):
+                    self.siblings.append(f)
+            if path not in self.siblings:
+                self.siblings.append(path)
+
+    def step(self, d):
+        if self.kind == "pdf":
+            last = self.pages or 10 ** 6
+            self.page = max(1, min(last, self.page + d))
+            self.scroll = 0
+        else:
+            i = self.siblings.index(self.path)
+            self.path = self.siblings[max(0, min(len(self.siblings) - 1, i + d))]
+
+    def jump(self, end):
+        if self.kind == "pdf":
+            self.page = max(1, self.pages) if end else 1
+            self.scroll = 0
+        else:
+            self.path = self.siblings[-1 if end else 0]
+
+    def handle(self, k):
+        app = self.app
+        if k in ("q", ESC, C("q")) or k in ENTER:
+            app.close_viewer()
+        elif self.kind == "pdf" and self.text_mode and k in ("j", "k", curses.KEY_DOWN,
+                                                              curses.KEY_UP):
+            self.scroll = max(0, self.scroll + (1 if k in ("j", curses.KEY_DOWN) else -1))
+        elif k in (curses.KEY_RIGHT, "l", " ", curses.KEY_NPAGE, curses.KEY_DOWN, "j"):
+            self.step(1)
+        elif k in (curses.KEY_LEFT, "h", curses.KEY_PPAGE, curses.KEY_UP, "k") or k in BACKSPACE:
+            self.step(-1)
+        elif k in (curses.KEY_HOME, "g"):
+            self.jump(False)
+        elif k in (curses.KEY_END, "G"):
+            self.jump(True)
+        elif k == "t" and self.kind == "pdf":
+            if not shutil.which("pdftotext"):
+                app.error("A szöveg módhoz kell a pdftotext (poppler-utils)")
+            elif not app.can_images:
+                app.error("A képes módhoz kell a Pillow és egy UTF-8 terminál")
+            else:
+                self.text_mode = not self.text_mode
+                self.scroll = 0
+        elif k == "o":
+            app.open_external(self.path)
+
+    def draw(self, scr, h, w):
+        th = h - 4
+        name = os.path.basename(self.path)
+        caption = ""
+        put(scr, 0, 0, " " * w, A["title"])
+        try:
+            st = os.stat(self.path)
+            if self.kind == "pdf" and self.text_mode:
+                text = pdf_text(self.path, st.st_mtime_ns, self.page)
+                lines = [clean(l.expandtabs(TAB)) for l in text.split("\n")]
+                if not text.strip():
+                    lines = ["", "  (ezen az oldalon nincs szöveg — t = kép megjelenítése)"]
+                self.scroll = min(self.scroll, max(0, len(lines) - th))
+                for r, line in enumerate(lines[self.scroll:self.scroll + th]):
+                    put(scr, 1 + r, 1, line[:w - 2])
+                caption = f"PDF szöveg  {self.page}/{self.pages or '?'} oldal"
+            else:
+                res = cached_render(self.kind, self.path, self.page, w, th,
+                                    lazy=self.app.input_pending())
+                if res is None:
+                    put(scr, 1 + th // 2, max(0, w // 2 - 1), "…", A["ln"])
+                else:
+                    grid, caption = res
+                    y0 = 1 + max(0, (th - len(grid)) // 2)
+                    x0 = max(0, (w - (len(grid[0]) if grid else 0)) // 2)
+                    draw_grid(scr, y0, x0, grid)
+                    if self.kind == "image" and len(self.siblings) > 1:
+                        caption += f"  ({self.siblings.index(self.path) + 1}/{len(self.siblings)})"
+            self.err = ""
+        except Exception as e:  # noqa: BLE001 - a nézegető sosem omolhat össze
+            self.err = str(e) or e.__class__.__name__
+            put(scr, 1 + th // 2, 2, f"[nem jeleníthető meg: {self.err}"[:w - 3] + "]", A["err"])
+        left = f" nanger │ nézegető │ {name}"
+        put(scr, 0, 0, left[:max(0, w - len(caption) - 3)], A["title"])
+        put(scr, 0, max(0, w - len(caption) - 1), caption, A["title"])
+        draw_help(scr, h - 1, VIEWER_HELP, w)
+        return None
+
+
 # ---------------------------------------------------------- fájlkezelő
 
 BROWSER_HELP1 = [("Enter", "Megnyit"), ("←", "Vissza"), ("n", "Új fájl"), ("N", "Új mappa"),
                  ("r", "Átnevez"), ("D", "Töröl"), ("/", "Keres"), ("q", "Kilép")]
 BROWSER_HELP2 = [("Szóköz", "Jelöl"), ("y", "Másol"), ("x", "Kivág"), ("p", "Beilleszt"),
-                 (".", "Rejtett"), ("c", "Ugrás"), ("S", "Shell"), ("?", "Súgó")]
+                 ("s", "Rendez"), ("v", "Nézeget"), ("o", "Külső"), ("?", "Súgó")]
+SORTS = [("name", "név"), ("size", "méret, nagyobb elöl"),
+         ("date", "módosítás, újabb elöl"), ("ext", "kiterjesztés")]
 
 BROWSER_HELP_TEXT = """\
 nanger — FÁJLKEZELŐ                                (bármely billentyű: vissza)
@@ -1074,14 +1447,22 @@ nanger — FÁJLKEZELŐ                                (bármely billentyű: vis
 MOZGÁS (nyilak vagy vim-billentyűk)
   ↑ ↓  vagy  k j        fel / le          PgUp PgDn   lapozás
   ←    vagy  h  vagy Backspace   szülő mappa
-  →    vagy  l  vagy Enter       mappába lépés / fájl szerkesztése
+  →    vagy  l  vagy Enter       mappába lépés / fájl megnyitása típus szerint
   g / G   lista eleje / vége              ~   saját mappa (home)
   c       ugrás egy beírt elérési útra    /   keresés név alapján
   .       rejtett fájlok mutatása / elrejtése
+  s       rendezés váltása: név → méret → dátum → kiterjesztés
+
+MEGNYITÁS ÉS ELŐNÉZET (a harmadik oszlopban)
+  szöveg   Enter: szerkesztő          kép, PDF   előnézet; Enter: külső program
+  (grafikus felületen) vagy beépített nézegető (SSH-n, konzolon)
+  v   beépített nézegető: ←/→ képek / PDF-oldalak, t = PDF szöveg/kép
+  o   megnyitás külső programmal (xdg-open)
+  archívum   előnézet: tartalomjegyzék; Enter: megnyitás / listázás
 
 FÁJLMŰVELETEK
   e       fájl szerkesztése              n   új fájl      N   új mappa
-  r       átnevezés                      D   (vagy Delete) törlés megerősítéssel
+  r       átnevezés                      D   (vagy Delete) kukába / végleges törlés
   Szóköz  fájl megjelölése (több fájl egyszerre)
   y       megjelöltek (vagy az aktuális) másolása a vágólapra
   x       kivágás                        p   beillesztés az aktuális mappába
@@ -1104,20 +1485,46 @@ class Browser:
         self.tagged = set()
         self.marked = None  # (útvonalak, "copy" | "cut")
         self.last_search = ""
+        self.sort = "name"
+        self._ls_cache = {}
         self._pv_key = None
-        self._pv = []
+        self._pv = ("lines", [], "")
         self.refresh()
 
     def listdir(self, d):
         try:
+            mt = os.stat(d).st_mtime_ns
             names = os.listdir(d)
         except OSError:
             return None
+        ckey = (mt, self.hidden, self.sort, len(names))
+        hit = self._ls_cache.get(d)
+        if hit and hit[0] == ckey:
+            return hit[1]
         if not self.hidden:
             names = [n for n in names if not n.startswith(".")]
-        return sorted(names, key=lambda n: (not os.path.isdir(os.path.join(d, n)), n.casefold()))
+
+        def key(n):
+            p = os.path.join(d, n)
+            try:
+                st = os.stat(p)
+                isdir = os.path.isdir(p)
+            except OSError:
+                return (False, 0, n.casefold())
+            if self.sort == "size":
+                return (not isdir, -st.st_size, n.casefold())
+            if self.sort == "date":
+                return (not isdir, -st.st_mtime, n.casefold())
+            if self.sort == "ext":
+                return (not isdir, os.path.splitext(n)[1].casefold(), n.casefold())
+            return (not isdir, n.casefold())
+
+        names = sorted(names, key=key)
+        self._ls_cache[d] = (ckey, names)
+        return names
 
     def refresh(self, select=None):
+        self._ls_cache.clear()
         e = self.listdir(self.cwd)
         if e is None:
             self.app.error("A mappa nem olvasható")
@@ -1178,10 +1585,23 @@ class Browser:
             if cur and os.path.isdir(cur):
                 self.cd(cur)
             elif cur:
-                app.open_editor(cur)
+                app.open_path(cur)
         elif k == "e":
             if cur and not os.path.isdir(cur):
                 app.open_editor(cur)
+        elif k == "v":
+            if cur and file_kind(cur) in ("image", "pdf"):
+                app.open_path(cur, viewer=True)
+            elif cur:
+                app.info("Nézegetőben csak képek és PDF-ek nyithatók (Enter = megnyitás)")
+        elif k == "o":
+            if cur and not os.path.isdir(cur):
+                app.open_external(cur)
+        elif k == "s":
+            names = [s for s, _ in SORTS]
+            self.sort = names[(names.index(self.sort) + 1) % len(names)]
+            self.refresh(os.path.basename(cur) if cur else None)
+            app.info("Rendezés: " + dict(SORTS)[self.sort])
         elif k == "n":
             name = app.prompt("Új fájl neve: ")
             if name:
@@ -1266,22 +1686,34 @@ class Browser:
             return
         label = os.path.basename(t[0]) + ("/" if os.path.isdir(t[0]) else "")
         if len(t) > 1:
-            label = f"{len(t)} elemet"
-        a = self.app.ask(f"Biztosan törlöd: {label}? (i = igen, n = nem) ")
-        if a not in ("i", "y"):
+            label = f"{len(t)} elem"
+        a = self.app.ask(f"{label}: t = kukába, d = végleges törlés, n = mégse ")
+        if a in ("t", "i", "y"):
+            permanent = False
+        elif a == "d":
+            if self.app.ask(f"VÉGLEGESEN törlöd: {label}? Nem vonható vissza! (i = igen) ") \
+                    not in ("i", "y"):
+                self.app.info("Törlés megszakítva")
+                return
+            permanent = True
+        else:
             self.app.info("Törlés megszakítva")
             return
         for p in t:
             try:
-                if os.path.isdir(p) and not os.path.islink(p):
-                    shutil.rmtree(p)
+                if permanent:
+                    if os.path.isdir(p) and not os.path.islink(p):
+                        shutil.rmtree(p)
+                    else:
+                        os.remove(p)
                 else:
-                    os.remove(p)
-            except OSError as e:
-                self.app.error(f"Nem törölhető: {os.path.basename(p)} ({e.strerror})")
+                    trash(p)
+            except (OSError, subprocess.SubprocessError) as e:
+                self.app.error(f"Nem törölhető: {os.path.basename(p)} "
+                               f"({getattr(e, 'strerror', None) or e})")
                 break
         else:
-            self.app.info(f"Törölve: {label}")
+            self.app.info(("Véglegesen törölve: " if permanent else "Kukába téve: ") + label)
         self.tagged.clear()
         self.refresh()
 
@@ -1352,15 +1784,18 @@ class Browser:
                 attr |= curses.A_REVERSE
             put(scr, 1 + r, x, text, attr)
 
-    def preview(self, p, th):
+    def preview(self, p, th, w3):
+        """('lines', [(szöveg, attr)], felirat) vagy ('image', cellák, felirat)"""
         try:
             st = os.stat(p)
         except OSError:
-            return [("[nem elérhető]", A["err"])]
-        key = (p, st.st_mtime, th, self.hidden)
+            return ("lines", [("[nem elérhető]", A["err"])], "")
+        key = (p, st.st_mtime_ns, th, w3, self.hidden, self.sort)
         if key == self._pv_key:
             return self._pv
-        if os.path.isdir(p):
+        kind = file_kind(p)
+        caption = human(st.st_size)
+        if kind == "dir":
             ents = self.listdir(p)
             if ents is None:
                 out = [("[nincs jogosultság]", A["err"])]
@@ -1369,21 +1804,59 @@ class Browser:
             else:
                 out = [(" " + clean(e) + ("/" if os.path.isdir(os.path.join(p, e)) else ""),
                         self.entry_attr(os.path.join(p, e))) for e in ents[:th]]
+            caption = ""
+        elif kind in ("image", "pdf"):
+            return self.preview_media(p, kind, th, w3, key, st)
+        elif kind == "archive":
+            out, more = archive_lines(p, th - 1)
+            out = [("Archívum — Enter: megnyitás", A["ln"])] + out
+            if more:
+                out.append(("…", A["ln"]))
+        elif kind == "external":
+            out = [(f"[{os.path.splitext(p)[1].lower()} fájl, {human(st.st_size)}]", A["ln"]),
+                   ("Enter: megnyitás külső programmal", A["ln"])]
+        elif kind == "binary":
+            out = [(f"[bináris fájl, {human(st.st_size)}]", A["ln"])]
         else:
             try:
                 with open(p, "rb") as f:
                     data = f.read(64 * 1024)
-                if b"\0" in data[:8192]:
-                    out = [(f"[bináris fájl, {human(st.st_size)}]", A["ln"])]
-                else:
-                    text = data.decode("utf-8", errors="replace").replace("\r", "")
-                    out = [(clean(l.expandtabs(TAB)), 0) for l in text.split("\n")[:th]]
-                    if not data:
-                        out = [("(üres fájl)", A["ln"])]
+                text = data.decode("utf-8", errors="replace").replace("\r", "")
+                out = [(clean(l.expandtabs(TAB)), 0) for l in text.split("\n")[:th]]
+                if not data:
+                    out = [("(üres fájl)", A["ln"])]
             except OSError as e:
                 out = [(f"[nem olvasható: {e.strerror}]", A["err"])]
-        self._pv_key, self._pv = key, out
-        return out
+        self._pv_key, self._pv = key, ("lines", out, caption)
+        return self._pv
+
+    def preview_media(self, p, kind, th, w3, key, st):
+        app = self.app
+        if not app.can_images:
+            # nincs Pillow / színes UTF-8 terminál: PDF-nél legalább a szöveg látszik
+            if kind == "pdf" and shutil.which("pdftotext"):
+                try:
+                    text = pdf_text(p, st.st_mtime_ns, 1)
+                    out = [(clean(l.expandtabs(TAB)), 0) for l in text.split("\n")[:th]]
+                except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+                    out = [(f"[PDF: {e}]", A["err"])]
+            else:
+                out = [(f"[{kind}, {human(st.st_size)}]", A["ln"]),
+                       ("Előnézethez: python3-pil (Debian) / python-pillow (Arch)", A["ln"])]
+            self._pv_key, self._pv = key, ("lines", out, human(st.st_size))
+            return self._pv
+        try:
+            res = cached_render(kind, p, 1, w3, th, lazy=app.input_pending())
+        except Exception as e:  # noqa: BLE001 - az előnézet sosem omolhat össze
+            msg = (str(e).strip().splitlines() or [e.__class__.__name__])[-1]
+            out = [(f"[nem jeleníthető meg: {msg}]", A["err"])]
+            self._pv_key, self._pv = key, ("lines", out, human(st.st_size))
+            return self._pv
+        if res is None:  # gyors görgetés közben nem renderelünk, nem tároljuk el
+            return ("lines", [("…", A["ln"])], "")
+        grid, caption = res
+        self._pv_key, self._pv = key, ("image", grid, f"{caption}  {human(st.st_size)}")
+        return self._pv
 
     def draw(self, scr, h, w):
         th = h - 4
@@ -1409,11 +1882,16 @@ class Browser:
         for r in range(th):
             put(scr, 1 + r, w1, "│", A["ln"])
             put(scr, 1 + r, w1 + 1 + w2, "│", A["ln"])
+        pcap = ""
         if n:
             self.draw_list(scr, w1 + 1, w2, self.cwd, self.entries, self.sel, self.top, th, True)
             if w3 > 3:
-                for r, (text, at) in enumerate(self.preview(self.current(), th)):
-                    put(scr, 1 + r, w1 + w2 + 2, text[:w3], at)
+                pkind, payload, pcap = self.preview(self.current(), th, w3)
+                if pkind == "image":
+                    draw_grid(scr, 1, w1 + w2 + 2, payload)
+                else:
+                    for r, (text, at) in enumerate(payload):
+                        put(scr, 1 + r, w1 + w2 + 2, text[:w3], at)
         else:
             put(scr, 1, w1 + 2, "(üres mappa — n: új fájl)", A["ln"])
         if not self.app.msg and n:
@@ -1425,6 +1903,10 @@ class Browser:
                 info = (f" {_st.filemode(st.st_mode)}  {human(st.st_size)}  "
                         f"{_t.strftime('%Y-%m-%d %H:%M', _t.localtime(st.st_mtime))}"
                         f"   {self.sel + 1}/{n}")
+                if pcap and pcap != human(st.st_size):
+                    info += f"   {pcap}"
+                if self.sort != "name":
+                    info += f"   rendezés: {dict(SORTS)[self.sort].split(',')[0]}"
                 if self.tagged:
                     info += f"   {len(self.tagged)} megjelölve"
                 if self.marked:
@@ -1451,6 +1933,7 @@ class App:
         self.macro = []
         self.cmd_history = []
         self.editor = None
+        self.viewer = None
         self.only_file = False
         target = os.path.abspath(os.path.expanduser(target))
         if os.path.isdir(target):
@@ -1459,8 +1942,8 @@ class App:
             d = os.path.dirname(target)
             self.browser = Browser(self, d if os.path.isdir(d) else os.getcwd())
             self.only_file = True
-            self.open_editor(target)
-            if self.editor is None:
+            self.open_path(target)
+            if self.editor is None and self.viewer is None:
                 self.only_file = False
 
     # ---- üzenetek
@@ -1485,6 +1968,60 @@ class App:
         set_system_clipboard(text)
 
     # ---- nézetek
+    @property
+    def can_images(self):
+        return Image is not None and curses.has_colors() and is_utf8()
+
+    def can_view(self, kind):
+        if kind == "pdf":
+            return bool(shutil.which("pdftotext")) or \
+                (self.can_images and bool(shutil.which("pdftoppm")))
+        return self.can_images
+
+    def open_path(self, path, viewer=False):
+        """Fájl megnyitása a típusa szerint: szöveg → szerkesztő, kép/PDF →
+        külső program (ha van grafikus felület) vagy a beépített nézegető."""
+        if not os.path.exists(path):
+            self.open_editor(path)  # új fájl
+            return
+        kind = file_kind(path)
+        if kind == "text":
+            self.open_editor(path)
+        elif kind in ("image", "pdf") and (viewer or not has_gui()):
+            if not self.can_view(kind):
+                self.error("Képek megjelenítéséhez: python3-pil (Debian) / python-pillow (Arch); "
+                           "PDF-hez: poppler-utils")
+                return
+            try:
+                self.viewer = Viewer(self, path, kind)
+            except OSError as e:
+                self.error(f"Nem nyitható meg: {e.strerror or e}")
+        elif kind == "archive" and not has_gui():
+            lines, more = archive_lines(path, 5000)
+            self.show_help(f"{os.path.basename(path)}  (bármely billentyű: vissza)\n\n"
+                           + "\n".join(t for t, _ in lines) + ("\n…" if more else ""))
+        else:
+            self.open_external(path)
+
+    def open_external(self, path):
+        if not has_gui():
+            self.error("Nincs grafikus felület (vagy xdg-open) — itt csak szöveg, kép és PDF nyitható")
+            return
+        try:
+            subprocess.Popen(["xdg-open", path], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+            self.info(f"Megnyitva külső programmal: {os.path.basename(path)}")
+        except OSError as e:
+            self.error(f"Nem indítható az xdg-open: {e.strerror or e}")
+
+    def close_viewer(self):
+        v, self.viewer = self.viewer, None
+        if self.only_file:
+            self.running = False
+        elif v and os.path.dirname(v.path) == self.browser.cwd:
+            self.browser.refresh(os.path.basename(v.path))
+
     def open_editor(self, path):
         try:
             self.editor = Editor(self, path)
@@ -1568,7 +2105,7 @@ class App:
             elif k == curses.KEY_F6:
                 self.play_macro()
             else:
-                (self.editor or self.browser).handle(k)
+                (self.viewer or self.editor or self.browser).handle(k)
 
     # ---- képernyő
     def draw(self, overlay=None):
@@ -1579,7 +2116,7 @@ class App:
             put(scr, 0, 0, "Túl kicsi az ablak")
             scr.refresh()
             return
-        cursor = (self.editor or self.browser).draw(scr, h, w)
+        cursor = (self.viewer or self.editor or self.browser).draw(scr, h, w)
         if overlay:
             text, cur = overlay
             start = max(0, cur - (w - 2))

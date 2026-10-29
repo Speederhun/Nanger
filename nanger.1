@@ -1,4 +1,4 @@
-.TH NANGER 1 "2026" "nanger 1.0.0" "Felhasználói parancsok"
+.TH NANGER 1 "2026" "nanger 1.1.0" "Felhasználói parancsok"
 .SH NÉV
 nanger \- fájlkezelő és szövegszerkesztő egyben (ranger + nano + vim)
 .SH ÁTTEKINTÉS
@@ -24,7 +24,17 @@ mozgás
 szülő mappa
 .TP
 .B Jobb, l, Enter
-belépés a mappába vagy a fájl szerkesztése
+belépés a mappába, vagy a fájl megnyitása a típusa szerint (lásd
+.BR "ELŐNÉZET ÉS MEGNYITÁS" )
+.TP
+.B s
+rendezés váltása: név, méret, módosítás ideje, kiterjesztés
+.TP
+.B v
+megnyitás a beépített nézegetőben (képek és PDF-ek)
+.TP
+.B o
+megnyitás külső programmal (xdg-open)
 .TP
 .B n / N
 új fájl / új mappa
@@ -33,7 +43,8 @@ belépés a mappába vagy a fájl szerkesztése
 átnevezés
 .TP
 .B D, Delete
-törlés (megerősítéssel)
+törlés: t = a kukába (visszaállítható, a szabványos ~/.local/share/Trash),
+d = végleges törlés (kétszeri megerősítéssel)
 .TP
 .B Szóköz
 megjelölés
@@ -55,6 +66,25 @@ shell nyitása / parancs futtatása az aktuális mappában
 .TP
 .B q
 kilépés
+.SH ELŐNÉZET ÉS MEGNYITÁS
+A harmadik oszlopban az aktuális elem előnézete látszik: szöveg, mappa
+tartalma, archívum (zip, tar, tar.gz, ...) tartalomjegyzéke, képek és PDF-ek
+első oldala színes félblokkos rajzként (bármely 256 színű UTF-8 terminálban
+működik, protokoll-támogatás nem kell).
+.PP
+Enter hatása fájltípus szerint: szöveg \(-> szerkesztő; kép, PDF, dokumentum
+(docx, odt, xlsx, ...), hang- és videófájl \(-> a rendszer alapértelmezett
+programja (xdg-open), ha van grafikus felület; kép és PDF grafikus felület nélkül
+(pl. SSH-n) \(-> a beépített nézegető.
+.PP
+A nézegetőben a bal/jobb nyíl a mappa képei, illetve a PDF oldalai között
+lapoz, a
+.B t
+a PDF szöveges és képes megjelenítése között vált, az
+.B o
+külső programmal nyit, a
+.B q
+visszalép.
 .SH SZERKESZTŐ
 .TP
 .B Ctrl+S / Ctrl+O
@@ -115,7 +145,14 @@ a parancs kimenetének beszúrása
 .BI @ N
 a makró lejátszása N-szer
 .SH KÖVETELMÉNYEK
-Python 3.8 vagy újabb. Külső csomag nem kell. Ha telepítve van a
+Python 3.8 vagy újabb. A szerkesztéshez és a fájlkezeléshez külső csomag nem
+kell. Opcionális: a
+.B Pillow
+(python3-pil / python-pillow) a kép- és PDF-előnézethez, a
+.B poppler-utils
+a PDF-hez, az
+.B xdg-utils
+a külső megnyitáshoz. Ha telepítve van a
 .BR wl-copy ,
 .B xclip
 vagy

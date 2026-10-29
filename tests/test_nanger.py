@@ -1,0 +1,521 @@
+"""Automata tesztek: a nanger-t egy valódi pszeudo-terminálban indítjuk, billentyűket
+küldünk neki, és a (pyte-tal emulált) képernyőt meg a lemezen lévő fájlokat nézzük.
+
+Futtatás:  pip install -r requirements-dev.txt && pytest -q
+"""
+import importlib.machinery
+import importlib.util
+import os
+import shutil
+import stat
+import tarfile
+import time
+import zipfile
+from pathlib import Path
+
+import pytest
+
+pexpect = pytest.importorskip("pexpect")
+pyte = pytest.importorskip("pyte")
+
+ROOT = Path(__file__).resolve().parent.parent
+NANGER = os.environ.get("NANGER_BIN") or str(ROOT / "nanger")
+
+CTRL = lambda c: chr(ord(c) & 0x1F)  # noqa: E731
+UP, DOWN, RIGHT, LEFT = "\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D"
+END, F1, F5, F6 = "\x1b[F", "\x1bOP", "\x1b[15~", "\x1b[17~"
+SHIFT_DOWN = "\x1b[1;2B"
+ROWS, COLS = 30, 100
+
+
+def load_module():
+    loader = importlib.machinery.SourceFileLoader("nanger_mod", NANGER)
+    spec = importlib.util.spec_from_loader("nanger_mod", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+class Term:
+    def __init__(self, arg, cwd, env):
+        self.scr = pyte.Screen(COLS, ROWS)
+        self.stream = pyte.ByteStream(self.scr)
+        self.p = pexpect.spawn(NANGER, [str(arg)], cwd=str(cwd), dimensions=(ROWS, COLS),
+                               env=env)
+        self.pump()
+
+    def pump(self, t=0.4):
+        end = time.time() + t
+        while time.time() < end:
+            try:
+                self.stream.feed(self.p.read_nonblocking(65536, timeout=0.1))
+            except pexpect.TIMEOUT:
+                pass
+            except pexpect.EOF:
+                break
+
+    def send(self, s, t=0.3):
+        for part in [s] if s.startswith("\x1b") else s:
+            self.p.send(part)
+            time.sleep(0.01)
+        self.pump(t)
+
+    def text(self):
+        return "\n".join(self.scr.display)
+
+    def row(self, y):
+        return self.scr.display[y]
+
+    def alive(self):
+        return self.p.isalive()
+
+    def wait_exit(self, t=2.0):
+        end = time.time() + t
+        while time.time() < end and self.p.isalive():
+            self.pump(0.1)
+        return not self.p.isalive()
+
+
+@pytest.fixture
+def work(tmp_path):
+    w = tmp_path / "work"
+    w.mkdir()
+    return w
+
+
+@pytest.fixture
+def env(tmp_path):
+    e = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+    home = tmp_path / "home"
+    home.mkdir()
+    e.update(TERM="xterm-256color", LANG="C.UTF-8", LC_ALL="C.UTF-8", HOME=str(home),
+             XDG_DATA_HOME=str(tmp_path / "xdg"))
+    return e
+
+
+@pytest.fixture
+def spawn(work, env):
+    terms = []
+
+    def make(arg=".", extra_env=None):
+        e = dict(env)
+        e.update(extra_env or {})
+        t = Term(arg, work, e)
+        terms.append(t)
+        return t
+
+    yield make
+    for t in terms:
+        if t.p.isalive():
+            t.p.terminate(force=True)
+
+
+# ------------------------------------------------------------------ egységtesztek
+
+def test_color_quantizer():
+    m = load_module()
+    assert m.rgb_to_256(0, 0, 0) == 16
+    assert m.rgb_to_256(255, 0, 0) == 196
+    assert m.rgb_to_256(255, 255, 255) == 231
+    assert m.rgb_to_256(128, 128, 128) == 244  # a szürkeskála közelebb van, mint a kocka
+
+
+def test_file_kind(work):
+    m = load_module()
+    (work / "a.txt").write_text("szia\n")
+    (work / "b.bin").write_bytes(b"\x00\x01\x02")
+    (work / "c.PDF").write_bytes(b"%PDF-1.4")
+    (work / "d.png").write_bytes(b"x")
+    (work / "e.tar.gz").write_bytes(b"x")
+    (work / "f.docx").write_bytes(b"x")
+    (work / "g").mkdir()
+    (work / "script").write_text("#!/bin/sh\necho hi\n")
+    kinds = {p.name: m.file_kind(str(p)) for p in work.iterdir()}
+    assert kinds == {"a.txt": "text", "b.bin": "binary", "c.PDF": "pdf", "d.png": "image",
+                     "e.tar.gz": "archive", "f.docx": "external", "g": "dir", "script": "text"}
+
+
+def test_move_to_trash_follows_freedesktop_spec(work, tmp_path, monkeypatch):
+    m = load_module()
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    for _ in range(2):  # kétszer ugyanaz a név: nem írhatja felül az elsőt
+        f = work / "régi fájl.txt"
+        f.write_text("tartalom")
+        m.move_to_trash(str(f))
+        assert not f.exists()
+    trash = tmp_path / "xdg" / "Trash"
+    assert len(list((trash / "files").iterdir())) == 2
+    info = sorted((trash / "info").iterdir())
+    assert len(info) == 2
+    body = info[0].read_text()
+    assert body.startswith("[Trash Info]\nPath=") and "%C3%A9" in body and "DeletionDate=" in body
+
+
+def test_archive_lines(work):
+    m = load_module()
+    z = work / "x.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("egy.txt", "a" * 2048)
+        zf.writestr("mappa/ketto.txt", "b")
+    lines, more = m.archive_lines(str(z), 10)
+    assert not more and "egy.txt" in lines[0][0] and "2.0K" in lines[0][0]
+    lines, more = m.archive_lines(str(z), 1)
+    assert more and len(lines) == 1
+
+
+# ------------------------------------------------------------------ szerkesztő
+
+def test_type_save_and_quit(spawn, work):
+    t = spawn("uj.txt")
+    t.send("Szia világ, ékezet: őű")
+    t.send(CTRL("s"))
+    t.send(CTRL("q"))
+    assert (work / "uj.txt").read_text() == "Szia világ, ékezet: őű\n"
+    assert t.wait_exit()
+
+
+def test_regex_replace_global_delete_and_undo(spawn, work):
+    (work / "b.txt").write_text("alma\nkörte\nalma\nbanán\n")
+    t = spawn("b.txt")
+    t.send(CTRL("p"))
+    t.send("%s/alma/eper/g\r")
+    t.send(CTRL("p"))
+    t.send("g/banán/d\r")
+    t.send(CTRL("s"))
+    assert (work / "b.txt").read_text() == "eper\nkörte\neper\n"
+    assert "^S Mentés" in t.text()
+    t.send(CTRL("z"))
+    t.send(CTRL("s"))
+    assert (work / "b.txt").read_text() == "eper\nkörte\neper\nbanán\n"
+
+
+def test_macro_record_and_replay(spawn, work):
+    (work / "m.txt").write_text("a\nb\nc\n")
+    t = spawn("m.txt")
+    for key in (F5, END, ";", DOWN, F5, F6, F6):
+        t.send(key)
+    t.send(CTRL("s"))
+    assert (work / "m.txt").read_text() == "a;\nb;\nc;\n"
+
+
+def test_cut_paste_lines_and_autoindent(spawn, work):
+    (work / "c.py").write_text("x\ny\n")
+    t = spawn("c.py")
+    t.send(CTRL("k"))
+    t.send(DOWN)
+    t.send(CTRL("v"))
+    t.send(END)
+    t.send("\rif 1:\rpass")
+    t.send(CTRL("s"))
+    assert (work / "c.py").read_text() == "x\ny\nif 1:\n    pass\n"
+
+
+def test_discard_prompt(spawn, work):
+    (work / "c.txt").write_text("x\n")
+    t = spawn("c.txt")
+    t.send("z")
+    t.send(CTRL("q"))
+    t.send("n")
+    assert t.wait_exit()
+    assert (work / "c.txt").read_text() == "x\n"
+
+
+def test_shell_filter_and_replace_dialog_and_help(spawn, work):
+    (work / "s.txt").write_text("3\n1\n2\nvége\n")
+    t = spawn("s.txt")
+    for _ in range(3):
+        t.send(SHIFT_DOWN)
+    t.send(CTRL("p"))
+    t.send("!sort -n\r")
+    t.send(CTRL("r"))
+    t.send("vége\r")
+    t.send("VÉGE\r")
+    t.send(CTRL("s"))
+    assert (work / "s.txt").read_text() == "1\n2\n3\nVÉGE\n"
+    t.send(F1)
+    assert "MAKRÓK" in t.text()
+
+
+def test_latin2_and_crlf_roundtrip(spawn, work):
+    (work / "l2.txt").write_bytes("árvíztűrő\r\n".encode("iso-8859-2"))
+    t = spawn("l2.txt")
+    assert "árvíztűrő" in t.text()
+    t.send(END)
+    t.send("!")
+    t.send(CTRL("s"))
+    assert (work / "l2.txt").read_bytes() == "árvíztűrő!\r\n".encode("iso-8859-2")
+
+
+# ------------------------------------------------------------------ fájlkezelő
+
+def test_browser_lists_and_previews_text(spawn, work):
+    (work / "a.py").write_text("def f():\n    return 1\n")
+    (work / "sub").mkdir()
+    t = spawn(".")
+    s = t.text()
+    assert "sub/" in s and "a.py" in s
+    t.send("j")
+    assert "def f():" in t.text()
+
+
+def test_mkdir_newfile_rename_copy(spawn, work):
+    t = spawn(".")
+    t.send("N")
+    t.send("mappa\r")
+    assert (work / "mappa").is_dir()
+    t.send("n")
+    t.send("jegyzet.md\r")
+    t.send("hello")
+    t.send(CTRL("s"))
+    t.send(CTRL("q"))
+    assert (work / "jegyzet.md").read_text() == "hello\n"
+    t.send("r")
+    t.send(CTRL("u"))
+    t.send("j2.md\r")
+    assert (work / "j2.md").exists() and not (work / "jegyzet.md").exists()
+    t.send("y")       # másolás
+    t.send("g")
+    t.send("\r")      # be a "mappa" nevű mappába (az első elem)
+    t.send("p")
+    assert (work / "mappa" / "j2.md").exists() and (work / "j2.md").exists()
+
+
+def test_delete_goes_to_trash(spawn, work, tmp_path):
+    (work / "torlendo.txt").write_text("fontos")
+    t = spawn(".")
+    t.send("D")
+    assert "kukába" in t.text()
+    t.send("t")
+    assert not (work / "torlendo.txt").exists()
+    trashed = list((tmp_path / "xdg" / "Trash" / "files").iterdir())
+    assert [p.name for p in trashed] == ["torlendo.txt"]
+    assert trashed[0].read_text() == "fontos"
+
+
+def test_permanent_delete_needs_two_confirmations(spawn, work, tmp_path):
+    (work / "a.txt").write_text("x")
+    t = spawn(".")
+    t.send("D")
+    t.send("d")
+    t.send("n")  # a második megerősítésnél nemet mondunk
+    assert (work / "a.txt").exists()
+    t.send("D")
+    t.send("d")
+    t.send("i")
+    assert not (work / "a.txt").exists()
+    assert not (tmp_path / "xdg" / "Trash").exists()
+
+
+def test_sort_cycle(spawn, work):
+    (work / "a_small.txt").write_text("x" * 10)
+    (work / "b_big.txt").write_text("x" * 5000)
+    (work / "c_mid.txt").write_text("x" * 500)
+    t = spawn(".")
+
+    def order():
+        rows = {}
+        for y in range(1, 20):
+            cell = t.row(y)[17:57]
+            for n in ("a_small", "b_big", "c_mid"):
+                if n in cell:
+                    rows[n] = y
+        return sorted(rows, key=rows.get)
+
+    assert order() == ["a_small", "b_big", "c_mid"]
+    t.send("s")
+    assert "méret" in t.text()
+    assert order() == ["b_big", "c_mid", "a_small"]
+
+
+# ------------------------------------------------------------------ előnézetek
+
+def cell_rgb(cell):
+    fg = cell.fg
+    assert len(fg) == 6, f"256 színű (hexa) szín kellene, ez: {fg!r}"
+    return tuple(int(fg[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def preview_cells(t, y0=1, y1=26, x0=58):
+    return [t.scr.buffer[y][x] for y in range(y0, y1) for x in range(x0, COLS)
+            if t.scr.buffer[y][x].data == "▀"]
+
+
+@pytest.fixture
+def pil():
+    return pytest.importorskip("PIL.Image")
+
+
+def make_png(path, left=(220, 30, 30), right=(30, 30, 220), size=(200, 100)):
+    from PIL import Image
+    im = Image.new("RGB", size, right)
+    im.paste(Image.new("RGB", (size[0] // 2, size[1]), left), (0, 0))
+    im.save(path)
+
+
+def test_image_preview_shows_real_colors(spawn, work, pil):
+    make_png(work / "kep.png")
+    t = spawn(".")
+    cells = preview_cells(t)
+    assert len(cells) > 100
+    xs = [x for x in range(58, COLS) if t.scr.buffer[5][x].data == "▀"]
+    r, g, b = cell_rgb(t.scr.buffer[5][xs[0]])    # bal oldal: piros
+    assert r > 150 and b < 100
+    r, g, b = cell_rgb(t.scr.buffer[5][xs[-1]])   # jobb oldal: kék
+    assert b > 150 and r < 100
+    assert "PNG" in t.text() and "200×100" in t.text()
+
+
+def test_broken_image_does_not_crash(spawn, work, pil):
+    (work / "rossz.png").write_bytes(b"ez nem kep")
+    t = spawn(".")
+    assert "nem jeleníthető meg" in t.text()
+    assert t.alive()
+    t.send("q")
+    assert t.wait_exit()
+
+
+def test_image_viewer_without_gui_walks_siblings(spawn, work, pil):
+    make_png(work / "a.png")
+    make_png(work / "b.png", left=(0, 200, 0))
+    t = spawn(".")
+    t.send("\r")  # Enter, nincs DISPLAY → beépített nézegető
+    assert "nézegető │ a.png" in t.row(0) and "(1/2)" in t.row(0)
+    t.send(RIGHT)
+    assert "b.png" in t.row(0) and "(2/2)" in t.row(0)
+    t.send("q")
+    assert "Enter Megnyit" in t.text()  # vissza a fájlkezelőben
+    assert t.row(0).startswith(" nanger │ ") and "nézegető" not in t.row(0)
+
+
+def make_text_pdf(path, pages):
+    n = len(pages)
+    kids = " ".join(f"{4 + 2 * i} 0 R" for i in range(n))
+    objs = ["<< /Type /Catalog /Pages 2 0 R >>",
+            f"<< /Type /Pages /Kids [{kids}] /Count {n} >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    for i, text in enumerate(pages):
+        content = f"BT /F1 24 Tf 72 700 Td ({text}) Tj ET"
+        objs.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                    f"/Contents {5 + 2 * i} 0 R /Resources << /Font << /F1 3 0 R >> >> >>")
+        objs.append(f"<< /Length {len(content)} >>\nstream\n{content}\nendstream")
+    out, offsets = b"%PDF-1.4\n", []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n{o}\nendobj\n".encode()
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode()
+    out += b"".join(f"{off:010d} 00000 n \n".encode() for off in offsets)
+    out += (f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+            .encode())
+    Path(path).write_bytes(out)
+
+
+needs_poppler = pytest.mark.skipif(not (shutil.which("pdftoppm") and shutil.which("pdftotext")),
+                                   reason="poppler-utils nincs telepítve")
+
+
+@needs_poppler
+def test_pdf_preview_is_rendered(spawn, work, pil):
+    make_text_pdf(work / "doc.pdf", ["Elso oldal"])
+    t = spawn(".")
+    assert len(preview_cells(t)) > 100
+    assert "PDF" in t.text() and "1/1 oldal" in t.text()
+
+
+@needs_poppler
+def test_pdf_viewer_text_and_image_modes_and_pages(spawn, work, pil):
+    make_text_pdf(work / "doc.pdf", ["Elso oldal szovege", "Masodik oldal szovege"])
+    t = spawn(".")
+    t.send("\r", 1.0)
+    assert "Elso oldal szovege" in t.text() and "1/2 oldal" in t.row(0)
+    t.send(RIGHT, 1.0)
+    assert "Masodik oldal szovege" in t.text() and "2/2 oldal" in t.row(0)
+    t.send("t", 1.0)  # képes mód
+    assert len([1 for y in range(1, 26) for x in range(COLS)
+                if t.scr.buffer[y][x].data == "▀"]) > 100
+    t.send("t", 0.5)
+    assert "Masodik oldal szovege" in t.text()
+    t.send("q")
+    assert "doc.pdf" in t.text() and "Enter Megnyit" in t.text()
+
+
+@needs_poppler
+def test_pdf_opened_directly_from_command_line(spawn, work, pil):
+    make_text_pdf(work / "doc.pdf", ["Parancssorbol"])
+    t = spawn("doc.pdf")
+    t.pump(1.0)
+    assert "Parancssorbol" in t.text()
+    t.send("q")
+    assert t.wait_exit()
+
+
+def fake_xdg_open(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    out = tmp_path / "xdg-open.log"
+    script = bin_dir / "xdg-open"
+    script.write_text(f'#!/bin/sh\necho "$@" >> "{out}"\n')
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return bin_dir, out
+
+
+def test_gui_session_opens_images_and_documents_externally(spawn, work, tmp_path, pil):
+    bin_dir, log = fake_xdg_open(tmp_path)
+    make_png(work / "a.png")
+    (work / "b.docx").write_bytes(b"PK")
+    t = spawn(".", {"DISPLAY": ":99", "PATH": f"{bin_dir}:{os.environ['PATH']}"})
+    t.send("\r")
+    t.send("j")
+    t.send("\r")
+    time.sleep(0.3)
+    lines = log.read_text().split()
+    assert [Path(x).name for x in lines] == ["a.png", "b.docx"]
+    assert "nézegető" not in t.row(0)
+
+
+def test_gui_session_v_key_forces_builtin_viewer(spawn, work, tmp_path, pil):
+    bin_dir, log = fake_xdg_open(tmp_path)
+    make_png(work / "a.png")
+    t = spawn(".", {"DISPLAY": ":99", "PATH": f"{bin_dir}:{os.environ['PATH']}"})
+    t.send("v")
+    assert "nézegető │ a.png" in t.row(0)
+    assert not log.exists()
+
+
+def test_no_gui_document_gives_clear_error(spawn, work):
+    (work / "b.docx").write_bytes(b"PK")
+    t = spawn(".")
+    t.send("\r")
+    assert "Nincs grafikus felület" in t.text()
+    assert t.alive()
+
+
+def test_archive_preview_and_listing_without_gui(spawn, work):
+    with zipfile.ZipFile(work / "x.zip", "w") as z:
+        z.writestr("egy.txt", "a")
+        z.writestr("mappa/ketto.txt", "b")
+    t = spawn(".")
+    assert "egy.txt" in t.text() and "mappa/ketto.txt" in t.text()
+    t.send("\r")  # grafikus felület nélkül: tartalomjegyzék lapozóban
+    assert "x.zip" in t.text() and "mappa/ketto.txt" in t.text()
+    t.send("x")
+    assert "Enter Megnyit" in t.text()
+
+
+def test_tar_gz_preview(spawn, work):
+    (work / "in").mkdir()
+    (work / "in" / "f.txt").write_text("x")
+    with tarfile.open(work / "y.tar.gz", "w:gz") as t_:
+        t_.add(work / "in" / "f.txt", arcname="in/f.txt")
+    (work / "in" / "f.txt").unlink()
+    (work / "in").rmdir()
+    t = spawn(".")
+    assert "in/f.txt" in t.text()
+
+
+def test_binary_file_preview_and_edit_refusal(spawn, work):
+    (work / "prog.bin").write_bytes(b"\x7fELF\x00\x00\x01")
+    t = spawn(".")
+    assert "bináris fájl" in t.text()
+    t.send("e")
+    assert "bináris" in t.row(ROWS - 3)

@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: PDF-eszközök a tesztekhez
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - run: pip install -r requirements-dev.txt
+      - run: python -m py_compile nanger
+      - run: python -m pytest -q tests
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: .deb építése
+        run: sh packaging/debian/build-deb.sh
+      - name: Telepítés, futtatás, eltávolítás
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ./dist/nanger_*_all.deb
+          nanger --version
+          test -f /usr/share/man/man1/nanger.1.gz
+          sudo apt-get remove -y nanger
+          hash -r
+          ! command -v nanger

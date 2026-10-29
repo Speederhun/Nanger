@@ -19,6 +19,7 @@ Section: editors
 Priority: optional
 Architecture: all
 Depends: python3 (>= 3.8)
+Recommends: python3-pil, poppler-utils, xdg-utils
 Suggests: xclip | wl-clipboard
 Installed-Size: $(du -ks "$ROOT/usr" | cut -f1)
 Maintainer: Speederhun <https://github.com/Speederhun/Nanger>

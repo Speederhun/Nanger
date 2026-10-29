@@ -11,4 +11,10 @@ uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/share/man/man1/nanger.1
 	rm -rf $(DESTDIR)$(PREFIX)/share/licenses/nanger
 
-.PHONY: install uninstall
+test:
+	python3 -m pytest -q tests
+
+deb:
+	sh packaging/debian/build-deb.sh
+
+.PHONY: install uninstall test deb

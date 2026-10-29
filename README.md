@@ -7,7 +7,13 @@
 - **Annyit tud, mint a vim:** regex-csere, sorok törlése minta alapján, rendezés,
   szűrés shell-parancson át, makrók, visszavonás/újra.
 
-Csak Python 3 kell hozzá, külső csomag nem.
+- **Mindent megnyit:** szöveget a szerkesztőben, képet és PDF-et előnézettel (a harmadik
+  oszlopban), dokumentumot, hangot és videót a rendszer alapértelmezett programjával.
+  Grafikus felület nélkül (SSH) a beépített kép- és PDF-nézegető működik.
+- **Biztonságos:** törlés a kukába megy (visszaállítható).
+
+Szerkesztéshez és fájlkezeléshez csak Python 3 kell, külső csomag nem. Az előnézetekhez
+opcionális csomagok vannak (lásd lent), a `.deb` ezeket magától telepíti.
 
 ```
  nanger │ ~/projekt
@@ -33,6 +39,9 @@ sudo apt install ./nanger_1.0.0_all.deb
 
 Eltávolítás: `sudo apt remove nanger`
 
+Az `apt` a javasolt csomagokat (`python3-pil`, `poppler-utils`, `xdg-utils`) is felteszi,
+ezekkel működik a kép- és PDF-előnézet.
+
 ### Arch, Manjaro (pacman)
 
 ```sh
@@ -42,6 +51,8 @@ makepkg -si
 ```
 
 Eltávolítás: `sudo pacman -R nanger`
+
+Az előnézetekhez: `sudo pacman -S python-pillow poppler xdg-utils`
 
 ### Bármely más Linux
 
@@ -68,10 +79,13 @@ A programon belül a **?** (fájlkezelő) vagy az **F1** (szerkesztő) mutatja a
 |---|---|
 | ↑ ↓ / `k` `j` | mozgás |
 | ← / `h` / Backspace | szülő mappa |
-| → / `l` / Enter | mappába lépés / fájl szerkesztése |
+| → / `l` / Enter | mappába lépés / fájl megnyitása típus szerint (lásd lent) |
+| `v` | megnyitás a beépített nézegetőben (kép, PDF) |
+| `o` | megnyitás külső programmal (`xdg-open`) |
+| `s` | rendezés váltása: név → méret → dátum → kiterjesztés |
 | `n` / `N` | új fájl / új mappa |
 | `r` | átnevezés |
-| `D` / Delete | törlés (megerősítéssel) |
+| `D` / Delete | törlés: `t` = kukába, `d` = végleges (kétszer kell megerősíteni) |
 | Szóköz | megjelölés (több fájl egyszerre) |
 | `y` / `x` / `p` | másolás / kivágás / beillesztés |
 | `/` | keresés név alapján |
@@ -79,6 +93,25 @@ A programon belül a **?** (fájlkezelő) vagy az **F1** (szerkesztő) mutatja a
 | `c` | ugrás egy elérési útra |
 | `S` / `!` | shell ebben a mappában / egy parancs futtatása |
 | `q` | kilépés |
+
+### Előnézet és megnyitás
+
+| Fájltípus | Előnézet (harmadik oszlop) | Enter |
+|---|---|---|
+| szöveg, forráskód | az első sorok | szerkesztő |
+| kép (png, jpg, gif, webp, …) | színes rajz a képről | külső program; grafikus felület nélkül a beépített nézegető |
+| PDF | az első oldal rajza | külső program; grafikus felület nélkül a beépített nézegető |
+| zip, tar, tar.gz, … | tartalomjegyzék | külső program; grafikus felület nélkül lapozható lista |
+| docx, odt, xlsx, mp3, mp4, … | méret és tipp | külső program (`xdg-open`) |
+| mappa | a tartalma | belépés |
+
+Az előnézet félblokkos karakterekkel készül, ezért szabványos 256 színű UTF-8
+terminálban (SSH-n és tmux-ban is) működik, külön grafikus protokoll nélkül. Kép előnézetéhez a **Pillow**, PDF-hez emellett a
+**poppler-utils** kell; ha nincs meg, a PDF-nél legalább az első oldal szövege látszik.
+
+A beépített nézegetőben (`v`, vagy Enter grafikus felület nélkül): ←/→ a mappa képei
+vagy a PDF oldalai között lapoz, `t` PDF-nél szöveg és kép között vált, `o` külső
+programmal nyit, `q` visszalép.
 
 ### Szerkesztő
 
@@ -114,9 +147,24 @@ A programon belül a **?** (fájlkezelő) vagy az **F1** (szerkesztő) mutatja a
 | `@ 20` | a makró lejátszása 20-szer |
 | `e fájl` | másik fájl megnyitása |
 
+## Fejlesztés
+
+```sh
+pip install -r requirements-dev.txt     # pytest, pexpect, pyte, pillow
+sudo apt install poppler-utils          # a PDF-tesztekhez
+make test                               # a tesztek valódi pszeudo-terminálban futnak
+make deb                                # .deb építése a dist/ mappába
+```
+
+A tesztek (`tests/`) a programot egy valódi terminálban indítják, billentyűket küldenek
+neki, és a képernyőt meg a lemezen történt változásokat ellenőrzik. A GitHub Actions
+minden push-nál lefuttatja őket Python 3.8–3.13 alatt, és kipróbálja a `.deb`
+telepítését és eltávolítását is.
+
 ## Új verzió kiadása
 
-1. Írd át a verziót a `nanger` fájlban (`VERSION = "..."`) és a `packaging/arch/PKGBUILD`-ben (`pkgver`).
+1. Írd át a verziót a `nanger` fájlban (`VERSION = "..."`), a `packaging/arch/PKGBUILD`-ben
+   (`pkgver`), a `nanger.1`-ben, és vezesd be a `CHANGELOG.md`-be.
 2. Címkézd meg és töltsd fel:
    ```sh
    git tag v1.0.1 && git push origin v1.0.1
