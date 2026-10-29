@@ -195,6 +195,14 @@ class App:
             cur = self.browser.current()
             self.browser.refresh(os.path.basename(cur) if cur else None)
 
+    def show_keys(self, mode=None):
+        from .keymenu import KeyMenu
+        if mode is None:
+            mode = "editor" if isinstance(self.view, Editor) else "browser"
+        if not isinstance(self.view, (Results, KeyMenu)):
+            self.return_view = self.view
+        self.view = KeyMenu(self, mode)
+
     def close_results(self):
         self.view = self.return_view or self.browser
 

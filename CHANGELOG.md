@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- **Keyboard shortcut menu:** `K` (file manager), `F9` or `:keys` (editor) lists the actions
+  with their keys. Enter changes a key (if it is taken, the two actions swap), Del resets it.
+  Saved to `~/.config/nanger/config.ini` (`[keys.browser]` / `[keys.editor]`).
+
 ## 1.3.0
 
 - **Sharp image and PDF previews with real pixels** in terminals that support it:

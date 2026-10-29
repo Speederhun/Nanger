@@ -76,3 +76,49 @@ def parse_key(name):
     if len(raw) == 1:
         return raw
     return None
+
+
+NOOP = -2   # "this key does nothing" (used when an action is moved to another key)
+
+
+def key_name(k):
+    """Inverse of parse_key, for the config file. None if the key cannot be named."""
+    if k == NOOP:
+        return "none"
+    if isinstance(k, str):
+        return k if len(k) == 1 and k != " " else ("space" if k == " " else None)
+    for n in ("enter", "tab", "backspace", "delete", "up", "down", "left", "right", "home",
+              "end", "pageup", "pagedown", "shift-tab", "alt-left", "alt-right"):
+        if _NAMES[n] == k:
+            return n
+    if isinstance(k, int):
+        if curses.KEY_F0 + 1 <= k <= curses.KEY_F0 + 12:
+            return "f%d" % (k - curses.KEY_F0)
+        if K_ALT_DIGIT + 1 <= k <= K_ALT_DIGIT + 9:
+            return "alt-%d" % (k - K_ALT_DIGIT)
+        if 1 <= k <= 26:
+            return "ctrl-" + chr(96 + k)
+    return None
+
+
+def key_label(k):
+    """Human readable: 'Ctrl+S', 'F4', 'Enter', 'x'."""
+    if k is None:
+        return "—"
+    n = key_name(k)
+    if n is None:
+        return "?"
+    if n.startswith("ctrl-"):
+        return "Ctrl+" + n[5:].upper()
+    if n.startswith("alt-"):
+        return "Alt+" + n[4:].capitalize()
+    return n.capitalize() if len(n) > 1 else n
+
+
+_old_parse = parse_key
+
+
+def parse_key(name):  # noqa: F811 - extends the table above with "none"
+    if name.strip().lower() == "none":
+        return NOOP
+    return _old_parse(name)

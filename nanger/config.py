@@ -170,3 +170,22 @@ def write_default(path=None):
     with open(path, "w", encoding="utf-8") as f:
         f.write(DEFAULT_TEXT)
     return path, True
+
+
+def save_keymaps(path=None):
+    """Rewrite the [keys.browser] / [keys.editor] sections of the config file."""
+    import re
+    from .actions import names
+    path = path or config_path()
+    write_default(path)
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    text = re.sub(r"(?ms)^\[keys\.(browser|editor)\][^\[]*", "", text).rstrip() + "\n"
+    for mode in ("browser", "editor"):
+        text += "\n[keys.%s]\n" % mode
+        for a, b in names(settings.keymaps[mode]):
+            text += "%s = %s\n" % (a, b)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)

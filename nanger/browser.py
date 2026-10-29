@@ -283,6 +283,8 @@ class Browser:
             app.request_quit()
         elif k in ("?", curses.KEY_F1):
             app.show_help(browser_help())
+        elif k in ("K", curses.KEY_F9):
+            app.show_keys("browser")
 
     def rename(self, cur):
         if not cur:

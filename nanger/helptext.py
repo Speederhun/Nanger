@@ -11,6 +11,7 @@ BASICS (like nano)
   Ctrl+R   replace (regex)     Ctrl+G   go to line (e.g. 120 or 120:5)
   Ctrl+Z   undo                Ctrl+Y   redo
   Ctrl+L   line numbers on/off Esc      clear the selection
+  F9 or :keys   change the keyboard shortcuts (menu)
 
 SELECTION AND CLIPBOARD
   Shift+arrows   select         Ctrl+B   selection mode on/off (grows with the arrows)
@@ -59,6 +60,7 @@ ALAPOK (mint a nano)
   Ctrl+R   csere (regex)       Ctrl+G   ugrás sorra (pl. 120 vagy 120:5)
   Ctrl+Z   visszavonás         Ctrl+Y   újra
   Ctrl+L   sorszámok be/ki     Esc      kijelölés megszüntetése
+  F9 vagy :keys   gyorsbillentyűk módosítása
 
 KIJELÖLÉS ÉS VÁGÓLAP
   Shift+nyilak   kijelölés      Ctrl+B   kijelölés-mód be/ki (nyilakkal bővül)
@@ -109,6 +111,7 @@ MOVING (arrows or vim keys)
   .       show / hide hidden files
   s       change sorting: name > size > date > extension
   m + key   set a bookmark here     ' + key   jump to a bookmark   ' + ?   list bookmarks
+  K / F9    change the keyboard shortcuts (menu, saved to the config file)
   ' + '     back to the previous folder
 
 OPENING AND PREVIEW (third column)
@@ -151,6 +154,7 @@ MOZGÁS (nyilak vagy vim-billentyűk)
   .       rejtett fájlok mutatása / elrejtése
   s       rendezés váltása: név → méret → dátum → kiterjesztés
   m + billentyű   könyvjelző ide   ' + billentyű   ugrás a könyvjelzőre   ' + ?   lista
+  K / F9     gyorsbillentyűk módosítása (menü, a beállítófájlba mentődik)
   ' + '   vissza az előző mappába
 
 MEGNYITÁS ÉS ELŐNÉZET (a harmadik oszlopban)

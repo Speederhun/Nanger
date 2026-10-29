@@ -541,6 +541,11 @@ def test_every_message_has_hungarian_translation():
             if (isinstance(n, ast.Call) and getattr(n.func, "id", "") == "tr" and n.args
                     and isinstance(n.args[0], ast.Constant)):
                 ids.add(n.args[0].value)
+    src = ast.parse((ROOT / "nanger" / "actions.py").read_text())
+    for n in ast.walk(src):  # the key-menu labels live in tables, not in tr() calls
+        if isinstance(n, ast.Tuple) and n.elts and isinstance(n.elts[0], ast.Constant) \
+                and isinstance(n.elts[0].value, str) and len(n.elts) == 2:
+            ids.add(n.elts[0].value)
     assert ids - set(HU) == set()
     for k, v in HU.items():  # a {mezők} egyezzenek
         import re
@@ -730,3 +735,39 @@ def test_sixel_encoder_roundtrip_header(pil):
     from PIL import Image
     s = encode_sixel(Image.new("RGB", (20, 13), (200, 10, 10)))
     assert s.startswith("\x1bP0;1;0q") and s.endswith("\x1b\\") and "#" in s
+
+
+def test_key_menu_rebind_and_persist(spawn, work, env):
+    (work / "a.txt").write_text("x")
+    t = spawn(".")
+    t.send("K")
+    assert "Gyorsbillentyűk" in t.row(0)
+    # "Törlés"-t keressük: lejjebb lépünk a 7. sorra (Open, Back, New file, New folder, Rename, Bulk, Delete)
+    for _ in range(6):
+        t.send("j")
+    t.send("\r")
+    t.send("X")                      # D helyett X törli a fájlt
+    assert "Elmentve" in t.text()
+    cfg = (Path(env["XDG_CONFIG_HOME"]) / "nanger" / "config.ini").read_text()
+    assert "X = D" in cfg and "D = none" in cfg
+    t.send("q")
+    t.send("X")
+    assert "kukába" in t.text()
+    t.send("n")
+    t.send("D")                      # az eredeti billentyű már nem csinál semmit
+    assert "kukába" not in t.row(ROWS - 3)
+
+
+def test_keys_module_swap_and_reset():
+    import curses
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from nanger import actions
+    from nanger.keys import NOOP
+    km, other = actions.rebind("browser", {}, 6, "X")           # Delete -> X
+    assert km == {"X": "D", "D": NOOP} and other is None
+    km, other = actions.rebind("browser", km, 2, "X")           # New file -> X: swap
+    assert other == 6 and actions.bindings("browser", km)[6] == "n"
+    km, _ = actions.reset("browser", km, 2)
+    km, _ = actions.reset("browser", km, 6)
+    assert km == {}

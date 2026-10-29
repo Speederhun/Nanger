@@ -15,7 +15,7 @@ English and Hungarian interface · Hungarian docs: [README.hu.md](README.hu.md)
 - **Bookmarks**, **bulk rename**, **search in files** (`f`, `:grep`)
 - Safe delete to the freedesktop **trash**
 - Opens documents/media with the desktop's default program (`xdg-open`)
-- Config file with colours and key remapping
+- Config file with colours, plus a **menu to change any keyboard shortcut** (`K` / `F9`)
 
 ## Install
 

@@ -262,6 +262,8 @@ class Editor:
             self.anchor, self.sticky = None, False
         elif k == curses.KEY_F1:
             app.show_help(editor_help())
+        elif k == curses.KEY_F9:
+            app.show_keys("editor")
         elif k in (curses.KEY_F4, C("e")):
             app.show_browser()
         elif k == K_ALT_LEFT:
@@ -646,6 +648,8 @@ class Editor:
         elif cmd.startswith("@"):
             n = cmd[1:].strip()
             app.play_macro(int(n) if n.isdigit() else 1)
+        elif cmd in ("keys", "map"):
+            app.show_keys("editor")
         elif cmd in ("ls", "buffers", "files"):
             app.list_buffers()
         elif cmd in ("bn", "bnext"):
