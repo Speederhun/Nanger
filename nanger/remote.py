@@ -12,7 +12,9 @@ MOUNTS = {}        # mountpoint -> "user@host"
 
 
 class RemoteError(Exception):
-    pass
+    def __init__(self, msg, auth=False):
+        super().__init__(msg)
+        self.auth = auth          # True: the server refused the login (a password may help)
 
 
 _SCP = re.compile(r"^(?:(?P<user>[^@/\s:]+)@)?(?P<host>[A-Za-z0-9._\-]+|\[[0-9A-Fa-f:]+\]):(?P<path>.*)$")
@@ -43,16 +45,22 @@ def looks_remote(spec):
     return parse(spec) is not None and not os.path.exists(os.path.expanduser(spec))
 
 
-def command(userhost, port, path, mountpoint):
-    cmd = ["sshfs", "%s:%s" % (userhost, path), mountpoint, "-o",
-           "BatchMode=yes,reconnect,ConnectTimeout=10,ServerAliveInterval=15,ServerAliveCountMax=3"]
+def command(userhost, port, path, mountpoint, password=False):
+    """sshfs command line. Without a password only keys / the agent are tried (BatchMode);
+    with one, sshfs reads it from stdin (never from the command line)."""
+    opts = "reconnect,ConnectTimeout=10,ServerAliveInterval=15,ServerAliveCountMax=3," \
+           "StrictHostKeyChecking=accept-new"
+    opts += ",password_stdin,PreferredAuthentications=password:keyboard-interactive" \
+        if password else ",BatchMode=yes"
+    cmd = ["sshfs", "%s:%s" % (userhost, path), mountpoint, "-o", opts]
     if port:
         cmd += ["-p", str(port)]
     return cmd
 
 
-def mount(spec):
-    """Mount the remote folder; returns the local mountpoint. Raises RemoteError."""
+def mount(spec, password=None):
+    """Mount the remote folder; returns the local mountpoint. Raises RemoteError
+    (with .auth set when the login was refused)."""
     p = parse(spec)
     if not p:
         raise RemoteError(tr("Not a remote address: {spec}").format(spec=spec))
@@ -62,17 +70,17 @@ def mount(spec):
     base = os.environ.get("XDG_RUNTIME_DIR")
     mp = tempfile.mkdtemp(prefix="nanger-ssh-", dir=base if base and os.path.isdir(base) else None)
     try:
-        r = subprocess.run(command(userhost, port, path, mp), capture_output=True, text=True,
-                           errors="replace", stdin=subprocess.DEVNULL, timeout=40)
+        r = subprocess.run(command(userhost, port, path, mp, password is not None),
+                           capture_output=True, text=True, errors="replace",
+                           input=None if password is None else password + "\n",
+                           stdin=subprocess.DEVNULL if password is None else None, timeout=40)
     except (OSError, subprocess.SubprocessError) as e:
         _rmdir(mp)
         raise RemoteError(str(e))
     if r.returncode:
         _rmdir(mp)
         msg = (r.stderr.strip().splitlines() or ["sshfs failed"])[-1]
-        if "Permission denied" in msg:
-            msg += " " + tr("(only SSH key login works; load your key with ssh-add)")
-        raise RemoteError(msg)
+        raise RemoteError(msg, auth="Permission denied" in r.stderr or "denied" in msg.lower())
     MOUNTS[mp] = userhost
     return mp
 

@@ -230,9 +230,15 @@ def main(argv=None):
 
     if paths and remote.looks_remote(target):
         try:
-            target = remote.mount(target)
-        except remote.RemoteError as e:
-            print("nanger: %s" % e, file=sys.stderr)
+            try:
+                target = remote.mount(target)
+            except remote.RemoteError as e:
+                if not e.auth:
+                    raise
+                import getpass
+                target = remote.mount(target, getpass.getpass(tr("Password: ")))
+        except (remote.RemoteError, EOFError, KeyboardInterrupt) as e:
+            print("nanger: %s" % (e or tr("cancelled")), file=sys.stderr)
             return 1
 
     holder = []

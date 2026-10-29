@@ -1384,3 +1384,34 @@ def test_hacker_theme_and_f4_without_files(spawn, work, env):
     assert t.scr.buffer[20][5].bg == "000000"
     t.send("\x1bOS")                                # F4: még nincs megnyitott fájl
     assert "Még nincs megnyitott fájl" in t.text()
+
+
+def test_remote_password_login_with_fake_sshfs(spawn, work, tmp_path):
+    """Keys fail ("Permission denied") -> nanger asks for a password and retries via stdin."""
+    bin_ = tmp_path / "pwbin"
+    bin_.mkdir()
+    (bin_ / "sshfs").write_text(
+        '#!/bin/sh\n'
+        'case "$*" in *password_stdin*) read pw; [ "$pw" = "titok" ] || { echo "Permission denied" >&2; exit 1; }\n'
+        '  echo hi > "$2/remote.txt";;\n'
+        '*) echo "me@box: Permission denied (publickey,password)." >&2; exit 1;; esac\n')
+    (bin_ / "fusermount3").write_text('#!/bin/sh\nrm -f "$3/remote.txt"\n')
+    for f in bin_.iterdir():
+        f.chmod(0o755)
+    t = spawn(".", extra_env={"PATH": "%s:%s" % (bin_, os.environ["PATH"])})
+    t.send("M")
+    t.send("me@box:/srv\r")
+    assert "Jelszó" in t.text()
+    t.send("titok")
+    assert "titok" not in t.text()                  # a jelszó nem látszik
+    assert "*****" in t.text()
+    t.send("\r")
+    assert "Csatlakozva: me@box" in t.text()
+    assert "remote.txt" in t.text()
+    t.send("M")
+    t.send("\r")
+    t3 = spawn(".", extra_env={"PATH": "%s:%s" % (bin_, os.environ["PATH"])})
+    t3.send("M")
+    t3.send("me@box:/srv\r")
+    t3.send("rossz\r")
+    assert "Permission denied" in t3.text()

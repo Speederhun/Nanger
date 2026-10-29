@@ -287,7 +287,18 @@ class Browser:
         app.info(tr("Connecting..."))
         app.draw()
         try:
-            mp = remote.mount(text)
+            try:
+                mp = remote.mount(text)
+            except remote.RemoteError as e:
+                if not e.auth:
+                    raise
+                pw = app.prompt(tr("Password: "), "", None, secret=True)
+                if pw is None:
+                    app.error(str(e))
+                    return
+                app.info(tr("Connecting..."))
+                app.draw()
+                mp = remote.mount(text, pw)
         except remote.RemoteError as e:
             app.error(str(e))
             return

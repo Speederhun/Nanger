@@ -737,13 +737,14 @@ class App:
         scr.refresh()
         media.flush_overlay()
 
-    def prompt(self, label, default="", history=None):
+    def prompt(self, label, default="", history=None, secret=False):
         buf = list(default)
         pos = len(buf)
         hi = len(history) if history is not None else 0
         while True:
             if not self.queue:
-                self.draw(overlay=(label + "".join(buf), len(label) + pos))
+                shown = "*" * len(buf) if secret else "".join(buf)
+                self.draw(overlay=(label + shown, len(label) + pos))
             k = self.getkey()
             if k is None or k == curses.KEY_RESIZE:
                 continue

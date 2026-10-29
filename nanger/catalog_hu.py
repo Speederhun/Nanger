@@ -297,7 +297,6 @@ HU = {
     "Connected: {host}": "Csatlakozva: {host}",
     "Not a remote address: {spec}": "Nem távoli cím: {spec}",
     "sshfs is not installed (apt install sshfs / pacman -S sshfs / brew install macfuse sshfs)": "Az sshfs nincs telepítve (apt install sshfs / pacman -S sshfs / brew install macfuse sshfs)",
-    "(only SSH key login works; load your key with ssh-add)": "(csak kulcsos SSH belépés működik; töltsd be a kulcsot: ssh-add)",
     "browse a remote folder over SSH (needs sshfs)": "távoli mappa böngészése SSH-n (sshfs kell)",
     "Compare": "Összehasonlítás",
     "compare": "összehasonlítás",
@@ -345,4 +344,6 @@ HU = {
     "Go to root folder": "Ugrás a gyökérmappába",
     "No open file yet — open one with e or Enter (F4 comes back to it)": "Még nincs megnyitott fájl — nyiss meg egyet (e vagy Enter), az F4 ide visszahoz",
     "Open file": "Nyitott fájl",
+    "Password: ": "Jelszó: ",
+    "cancelled": "megszakítva",
 }

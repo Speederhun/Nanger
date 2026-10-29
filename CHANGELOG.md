@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.11.2
+
+- **Remote folders now also work with a password**: if the SSH keys are refused, `M` (and `nanger user@host:/dir`) asks for the password (hidden) and retries; the password goes to `sshfs` through stdin, never the command line. New host keys are trusted on first use (`StrictHostKeyChecking=accept-new`).
+
 ## 1.11.1
 
 - New **hacker** colour theme (green on black); `T` still switches themes, `default` keeps the terminal's own colours.
