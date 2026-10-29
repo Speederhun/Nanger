@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1
+
+- Sharper image and PDF previews: **24-bit true colour** when the terminal supports it
+  (`COLORTERM=truecolor`; set `NANGER_TRUECOLOR=0` to disable) and Floyd-Steinberg
+  dithering in 256-colour terminals (no more streaky skies).
+
 ## 1.2.0
 
 - **Git integration:** status letters in the file list (M/A/?/D/!) and a changed-lines

@@ -664,3 +664,22 @@ def test_bulk_rename(spawn, work):
     t.send("i")
     t.pump(0.8)
     assert sorted(p.name for p in work.iterdir()) == ["b1.txt", "b2.txt", "b3.txt"]
+
+
+def test_truecolor_image_preview(spawn, work, pil):
+    make_png(work / "kep.png", left=(201, 33, 47), right=(12, 99, 222))
+    t = spawn(".", {"COLORTERM": "truecolor"})
+    xs = [x for x in range(58, COLS) if t.scr.buffer[5][x].data == "▀"]
+    assert t.scr.buffer[5][xs[0]].fg == "c9212f"      # (201, 33, 47) pontosan
+    assert t.scr.buffer[5][xs[-1]].fg == "0c63de"
+
+
+def test_photo_preview_is_dithered_not_streaky(spawn, work, pil):
+    from PIL import Image
+    im = Image.new("RGB", (400, 300))
+    for y in range(300):                                  # lágy átmenet: égbolt
+        for x in range(400):
+            im.putpixel((x, y), (190 + x // 20, 215 + y // 30, 245))
+    im.save(work / "ég.jpg")
+    t = spawn(".")
+    assert len(preview_cells(t)) > 100 and t.alive()

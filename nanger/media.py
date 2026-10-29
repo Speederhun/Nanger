@@ -103,8 +103,32 @@ def quant(px):
     return int(r > 127) | int(g > 127) << 1 | int(b > 127) << 2
 
 
+_LEVELS = (0, 95, 135, 175, 215, 255)
+OVERLAY = []     # (y, x, row) true-colour rows to paint after curses has flushed
+_PAL = None
+
+
+def truecolor():
+    return (os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit")
+            and curses.COLORS >= 256 and os.environ.get("NANGER_TRUECOLOR", "1") != "0")
+
+
+def _dither_to_256(img):
+    """Floyd-Steinberg dither to the xterm 6x6x6 cube + gray ramp (much better on photos)."""
+    global _PAL
+    if _PAL is None:
+        cols = [(r, g, b) for r in _LEVELS for g in _LEVELS for b in _LEVELS]
+        cols += [(8 + 10 * i,) * 3 for i in range(24)]
+        flat = [c for rgb in cols for c in rgb]
+        flat += flat[:3] * (256 - len(cols))
+        pal = Image.new("P", (1, 1))
+        pal.putpalette(flat)
+        _PAL = pal
+    return img.quantize(palette=_PAL, dither=Image.FLOYDSTEINBERG).convert("RGB")
+
+
 def render_grid(img, cols, rows):
-    """PIL image -> half-block cells: per row a list of (top color, bottom color) pairs."""
+    """PIL image -> half-block cells: per row a list of (top RGB, bottom RGB) pairs."""
     rs = getattr(Image, "Resampling", Image)
     img = img.convert("RGBA")
     if img.getchannel("A").getextrema()[0] < 255:
@@ -115,9 +139,11 @@ def render_grid(img, cols, rows):
     nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
     nh += nh % 2
     method = rs.LANCZOS if scale < 1 else (rs.NEAREST if scale >= 2 else rs.BILINEAR)
-    px = img.resize((nw, nh), method).load()
-    return [[(quant(px[x, y]), quant(px[x, y + 1])) for x in range(nw)]
-            for y in range(0, nh, 2)]
+    img = img.resize((nw, nh), method)
+    if not truecolor() and curses.COLORS >= 256 and scale < 1:
+        img = _dither_to_256(img)
+    px = img.load()
+    return [[(px[x, y], px[x, y + 1]) for x in range(nw)] for y in range(0, nh, 2)]
 
 
 def color_attr(fg, bg):
@@ -134,17 +160,39 @@ def color_attr(fg, bg):
 
 def draw_grid(scr, y0, x0, grid):
     h, w = scr.getmaxyx()
+    tc = truecolor()
     for r, row in enumerate(grid):
         y = y0 + r
         if y >= h:
             break
-        for c, (fg, bg) in enumerate(row):
-            if x0 + c >= w:
-                break
+        row = row[:max(0, w - x0)]
+        if tc and row:
+            OVERLAY.append((y, x0, row))
+        for c, (top, bot) in enumerate(row):
             try:
-                scr.addstr(y, x0 + c, "▀", color_attr(fg, bg))
+                scr.addstr(y, x0 + c, "▀", color_attr(quant(top), quant(bot)))
             except curses.error:
                 pass
+
+
+def flush_overlay():
+    """Paint the true-colour rows over the 256-colour placeholders (call after refresh)."""
+    if not OVERLAY:
+        return
+    out = ["\x1b7"]
+    for y, x, row in OVERLAY:
+        out.append("\x1b[%d;%dH" % (y + 1, x + 1))
+        last = None
+        for top, bot in row:
+            if (top, bot) != last:
+                out.append("\x1b[38;2;%d;%d;%d;48;2;%d;%d;%dm" % (top + bot))
+                last = (top, bot)
+            out.append("▀")
+    out.append("\x1b[0m\x1b8")
+    try:
+        os.write(1, "".join(out).encode("utf-8"))
+    except OSError:
+        pass
 
 
 # ------------------------------------------------------------------ PDF

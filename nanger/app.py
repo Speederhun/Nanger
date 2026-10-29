@@ -14,6 +14,7 @@ from .editor import Editor
 from .fsops import apply_renames, load_bookmarks, plan_renames, search_files
 from .i18n import tr
 from .keys import BACKSPACE, C, ENTER, ESC, ESCAPES, K_ALT_LEFT, K_ALT_RIGHT
+from . import media
 from .media import archive_lines, can_view, file_kind, has_gui
 from .results import Results
 from .term import A, put
@@ -419,6 +420,7 @@ class App:
     def draw(self, overlay=None):
         scr = self.scr
         scr.erase()
+        media.OVERLAY.clear()
         h, w = scr.getmaxyx()
         if h < 8 or w < 30:
             put(scr, 0, 0, tr("Window too small"))
@@ -443,6 +445,7 @@ class App:
         except curses.error:
             pass
         scr.refresh()
+        media.flush_overlay()
 
     def prompt(self, label, default="", history=None):
         buf = list(default)
