@@ -421,6 +421,7 @@ class App:
         scr = self.scr
         scr.erase()
         media.OVERLAY.clear()
+        media.GRAPHICS.clear()
         h, w = scr.getmaxyx()
         if h < 8 or w < 30:
             put(scr, 0, 0, tr("Window too small"))
@@ -516,6 +517,7 @@ class App:
             return None if k == ESC else k
 
     def show_help(self, text):
+        media.hide_graphics()
         lines = text.split("\n")
         top = 0
         while True:
@@ -538,6 +540,7 @@ class App:
                 return
 
     def shell(self, cmd, cwd):
+        media.hide_graphics()
         curses.def_prog_mode()
         curses.endwin()
         try:

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+- **Sharp image and PDF previews with real pixels** in terminals that support it:
+  kitty graphics protocol (kitty, WezTerm, Ghostty), iTerm2 inline images and sixel (foot,
+  mlterm, ...). Detected automatically; override with `graphics = kitty|iterm|sixel|blocks`
+  in the config or `NANGER_GRAPHICS`. Other terminals keep the coloured-block preview.
+- **Text preview for Office documents** (docx, odt, xlsx, ods, pptx, odp) in the file manager.
+
 ## 1.2.1
 
 - Sharper image and PDF previews: **24-bit true colour** when the terminal supports it

@@ -683,3 +683,50 @@ def test_photo_preview_is_dithered_not_streaky(spawn, work, pil):
     im.save(work / "ég.jpg")
     t = spawn(".")
     assert len(preview_cells(t)) > 100 and t.alive()
+
+
+def test_docx_and_odt_text_preview(spawn, work):
+    with zipfile.ZipFile(work / "level.docx", "w") as z:
+        z.writestr("word/document.xml",
+                   '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                   '<w:body><w:p><w:r><w:t>Tisztelt Uram!</w:t></w:r></w:p>'
+                   '<w:p><w:r><w:t>Masodik bekezdes</w:t></w:r></w:p></w:body></w:document>')
+    t = spawn(".")
+    assert "Tisztelt Uram!" in t.text() and "Masodik bekezdes" in t.text()
+    (work / "level.docx").rename(work / "x.docx")
+    (work / "sub").mkdir()
+    with zipfile.ZipFile(work / "sub" / "o.odt", "w") as z:
+        z.writestr("content.xml",
+                   '<o:d xmlns:o="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+                   'xmlns:t="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
+                   '<t:p>ODT szoveg</t:p></o:d>')
+    t2 = spawn("sub")
+    assert "ODT szoveg" in t2.text()
+
+
+def test_kitty_graphics_protocol_is_emitted(work, env, pil):
+    make_png(work / "kep.png")
+    e = dict(env, NANGER_GRAPHICS="kitty")
+    log = work.parent / "raw.bin"
+    with open(log, "wb") as f:
+        p = pexpect.spawn(NANGER, ["."], cwd=str(work), dimensions=(ROWS, COLS), env=e)
+        p.logfile_read = f
+        time.sleep(1.5)
+        try:
+            p.read_nonblocking(65536, timeout=0.3)
+        except Exception:  # noqa: BLE001
+            pass
+        p.send("q")
+        time.sleep(0.4)
+        p.terminate(force=True)
+    raw = log.read_bytes()
+    assert b"\x1b_Ga=T,f=100" in raw and b"iVBOR" in raw      # PNG, base64
+
+
+def test_sixel_encoder_roundtrip_header(pil):
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from nanger.media import encode_sixel
+    from PIL import Image
+    s = encode_sixel(Image.new("RGB", (20, 13), (200, 10, 10)))
+    assert s.startswith("\x1bP0;1;0q") and s.endswith("\x1b\\") and "#" in s

@@ -24,6 +24,8 @@ line_numbers = yes
 show_hidden = no
 # default sorting: name, size, date or ext
 sort = name
+# image previews: auto, kitty, iterm, sixel (real pixels) or blocks (coloured text cells)
+graphics = auto
 # show git status in the file manager and changed lines in the editor
 git = yes
 
@@ -58,6 +60,7 @@ class Settings:
         self.show_hidden = False
         self.sort = "name"
         self.git = True
+        self.graphics = "auto"
         self.colors = {}
         self.keymaps = {"browser": {}, "editor": {}}
         self.warnings = []
@@ -125,6 +128,10 @@ def load(path=None):
                 settings.line_numbers = _bool(raw)
             elif key == "show_hidden":
                 settings.show_hidden = _bool(raw)
+            elif key == "graphics":
+                if raw.strip().lower() not in ("auto", "kitty", "iterm", "sixel", "blocks"):
+                    raise ValueError(raw)
+                settings.graphics = raw.strip().lower()
             elif key == "git":
                 settings.git = _bool(raw)
             elif key == "sort":

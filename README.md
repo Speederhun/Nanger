@@ -9,7 +9,7 @@ English and Hungarian interface · Hungarian docs: [README.hu.md](README.hu.md)
 ## Features
 
 - Three-column file manager with previews: text, folders, archives, **images and PDFs**
-  (coloured half-blocks, works over SSH in any 256-colour UTF-8 terminal)
+  (real pixels in kitty / WezTerm / Ghostty / iTerm2 / sixel terminals, coloured half-blocks elsewhere, works over SSH), text preview of docx/odt/xlsx/pptx
 - **Git status** in the list and a changed-lines gutter in the editor
 - **Several open files**, file-changed-on-disk detection
 - **Bookmarks**, **bulk rename**, **search in files** (`f`, `:grep`)

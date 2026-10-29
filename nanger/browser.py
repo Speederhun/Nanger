@@ -13,7 +13,7 @@ from .fsops import load_bookmarks, save_bookmarks, trash
 from .helptext import browser_help
 from .i18n import tr
 from .keys import BACKSPACE, C, ENTER, ESC
-from .media import archive_lines, can_images, cached_render, draw_grid, file_kind, pdf_text
+from .media import OFFICE_EXT, archive_lines, office_text, can_images, cached_render, draw_grid, file_kind, pdf_text
 from .term import A, clean, draw_help, put
 from .util import human, unique_path
 
@@ -454,6 +454,15 @@ class Browser:
             out = [(tr("Archive — Enter: open"), A["ln"])] + out
             if more:
                 out.append(("…", A["ln"]))
+        elif kind == "external" and os.path.splitext(p.lower())[1] in OFFICE_EXT:
+            try:
+                lines = office_text(p, st.st_mtime_ns)
+                out = [(clean(l.expandtabs(settings.tab_width)), 0) for l in lines[:th]]
+                if not out:
+                    out = [(tr("(empty file)"), A["ln"])]
+            except Exception:  # noqa: BLE001 - corrupt/encrypted document
+                out = [(tr("[{ext} file, {size}]").format(
+                    ext=os.path.splitext(p)[1].lower(), size=human(st.st_size)), A["ln"])]
         elif kind == "external":
             out = [(tr("[{ext} file, {size}]").format(ext=os.path.splitext(p)[1].lower(),
                                                       size=human(st.st_size)), A["ln"]),
