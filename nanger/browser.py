@@ -16,7 +16,7 @@ from .keys import BACKSPACE, C, ENTER, ESC, K_ALT_LEFT, K_ALT_RIGHT
 from . import archiver
 from .media import ARCHIVE_EXT, OFFICE_EXT, archive_lines, office_text, can_images, cached_render, draw_grid, file_kind, pdf_text
 from .term import A, clean, draw_help, put
-from .util import human, unique_path
+from .util import human, size_column, unique_path
 
 SORT_IDS = ("name", "size", "date", "ext")
 
@@ -609,11 +609,11 @@ class Browser:
             if tagged:
                 attr = A["tag"]
             label = ("*" if tagged else " ") + (" " if git_on else "") + \
-                clean(name) + ("/" if isdir else "")
+                clean(name)
             size = ""
             if active and not isdir:
                 try:
-                    size = human(os.lstat(p).st_size) + " "
+                    size = size_column(os.lstat(p).st_size) + " "
                 except OSError:
                     pass
             room = width - len(size)
@@ -644,7 +644,7 @@ class Browser:
             elif not ents:
                 out = [(tr("(empty folder)"), A["ln"])]
             else:
-                out = [(" " + clean(e) + ("/" if os.path.isdir(os.path.join(p, e)) else ""),
+                out = [(" " + clean(e),
                         self.entry_attr(os.path.join(p, e))) for e in ents[:th]]
             caption = ""
         elif kind in ("image", "pdf"):

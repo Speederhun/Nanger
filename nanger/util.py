@@ -16,6 +16,13 @@ def human(n):
     return "%.1fP" % n
 
 
+def size_column(n):
+    """Fixed-width size for lists: numbers right-aligned, units in one column
+    ('    2 B', ' 2.8 K', '11.0 M')."""
+    h = human(n)
+    return "%5s %s" % (h[:-1], h[-1])
+
+
 def unique_path(dst):
     if not os.path.lexists(dst):
         return dst

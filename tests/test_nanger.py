@@ -261,7 +261,7 @@ def test_browser_lists_and_previews_text(spawn, work):
     (work / "sub").mkdir()
     t = spawn(".")
     s = t.text()
-    assert "sub/" in s and "a.py" in s
+    assert "sub" in s and "a.py" in s
     t.send("j")
     assert "def f():" in t.text()
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.2
+
+- Folders are listed without a trailing `/` (they keep their colour).
+- File sizes are aligned in a column: numbers right-aligned, units one under another.
+
 ## 1.8.1
 
 - `nanger --doctor` shows why previews/colours do not work (Python, Pillow, locale, terminal,
