@@ -158,7 +158,7 @@ def install_shell():
     if sh == "fish":
         rc, line = os.path.join(home, ".config", "fish", "config.fish"), "nanger --shell-init fish | source"
     elif sh == "zsh":
-        rc, line = os.path.join(home, ".zshrc"), 'eval "$(command nanger --shell-init zsh)"'
+        rc, line = os.path.join(os.environ.get("ZDOTDIR") or home, ".zshrc"), 'eval "$(command nanger --shell-init zsh)"'
     else:
         rc = os.path.join(home, ".bashrc")
         if sys.platform == "darwin" and not os.path.exists(rc):
