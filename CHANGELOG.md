@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.7.0
+
+- `zh` shows/hides hidden files (like ranger; `.` still works).
+- **Two-key shortcuts:** the shortcut menu accepts one or two keys (e.g. `g` `i`); saved as
+  `g i = .` in the config.
+- **Archives in purple** (zip, 7z, rar, tar, gz, iso, deb, ...), colour `archive` in the config;
+  7z/rar/iso contents are listed when `bsdtar` or `7z` is installed.
+- **Mouse rewritten:** wheel down works everywhere, drag selects text in the editor,
+  the side **back button** goes to the previous folder (forward button: next), Alt+Left/Right
+  does the same in the file manager.
+
 ## 1.6.0
 
 - **macOS support:** Homebrew formula (`brew tap Speederhun/nanger https://github.com/Speederhun/Nanger`,

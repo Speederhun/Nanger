@@ -15,6 +15,7 @@ _SPEC = {
     "dir": ("directory", "blue", curses.A_BOLD),
     "exe": ("executable", "green", curses.A_BOLD),
     "link": ("link", "cyan", 0),
+    "arc": ("archive", "magenta", curses.A_BOLD),
     "com": ("comment", "green", 0),
     "str": ("string", "yellow", 0),
     "num": ("number", "cyan", 0),

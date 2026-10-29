@@ -136,7 +136,10 @@ class Editor:
     # ---- selection
     def mouse(self, x, y, kind):
         g = getattr(self, "geom", None)
-        if not g or kind == "right":
+        if kind == "back":
+            self.handle(curses.KEY_F4)      # back to the file manager
+            return
+        if not g or kind in ("right", "forward"):
             return
         gutter, th = g
         if y < 1 or y > th:

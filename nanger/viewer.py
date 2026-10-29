@@ -77,7 +77,7 @@ class Viewer:
 
     def mouse(self, x, y, kind):
         w = self.app.scr.getmaxyx()[1]
-        if kind == "right":
+        if kind in ("right", "back"):
             self.app.close_viewer()
         elif kind in ("click", "double") and y >= 1:
             self.step(1 if x >= w // 2 else -1)

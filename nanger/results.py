@@ -41,7 +41,7 @@ class Results:
 
     def mouse(self, x, y, kind):
         i = self.top + y - 1
-        if kind == "right":
+        if kind in ("right", "back"):
             self.app.close_results()
         elif kind in ("click", "double", "drag") and 1 <= y and 0 <= i < len(self.items):
             self.sel = i

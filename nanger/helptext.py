@@ -108,7 +108,9 @@ MOVING (arrows or vim keys)
   Right or  l  or Enter       enter a folder / open a file by its type
   g / G   top / bottom of the list          ~   home folder
   c       jump to a typed path              /   search by name
-  .       show / hide hidden files
+  . or zh   show / hide hidden files
+  mouse   click select, double-click open, wheel scroll, right-click or the side "back"
+          button = previous folder (forward button = next), drag in the editor to select
   s       sort menu: n name, d date, s size, e extension, r reverse (same key again = reverse)
   m + key   set a bookmark here     ' + key   jump to a bookmark   ' + ?   list bookmarks
   K / F9    change the keyboard shortcuts (menu, saved to the config file)
@@ -151,7 +153,9 @@ MOZGÁS (nyilak vagy vim-billentyűk)
   →    vagy  l  vagy Enter       mappába lépés / fájl megnyitása típus szerint
   g / G   lista eleje / vége              ~   saját mappa (home)
   c       ugrás egy beírt elérési útra    /   keresés név alapján
-  .       rejtett fájlok mutatása / elrejtése
+  . vagy zh   rejtett fájlok mutatása / elrejtése
+  egér    kattintás kijelöl, dupla kattintás megnyit, görgő lapoz, jobb gomb vagy az oldalsó
+          „vissza” gomb = előző mappa (előre gomb = következő), szerkesztőben húzás = kijelölés
   s       rendezés menü: n név, d dátum, s méret, e kiterjesztés, r fordított (ugyanaz újra = fordítva)
   m + billentyű   könyvjelző ide   ' + billentyű   ugrás a könyvjelzőre   ' + ?   lista
   K / F9     gyorsbillentyűk módosítása (menü, a beállítófájlba mentődik)

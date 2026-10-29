@@ -14,8 +14,8 @@ from .config import settings
 from .editor import Editor
 from .fsops import apply_renames, load_bookmarks, plan_renames, search_files
 from .i18n import tr
-from .keys import BACKSPACE, C, ENTER, ESC, ESCAPES, K_ALT_LEFT, K_ALT_RIGHT, K_MOUSE
-from . import media
+from .keys import BACKSPACE, C, ENTER, ESC, ESCAPES, K_ALT_LEFT, K_ALT_RIGHT, K_MOUSE, seq_label
+from . import actions, media
 from .media import archive_lines, can_view, file_kind, has_gui
 from .results import Results
 from . import term
@@ -33,6 +33,8 @@ class App:
         self.running = True
         self.queue = deque()
         self.btn_down = False
+        self._want_mouse = False
+        self.pending = ()
         self.last_click = None
         self.mouse_event = (0, 0, "click")
         self.recording = None
@@ -337,6 +339,7 @@ class App:
 
     # ---- keyboard
     def getkey(self, mouse=False):
+        self._want_mouse = mouse
         if self.queue:
             return self.queue.popleft()
         try:
@@ -345,12 +348,14 @@ class App:
             return None
         except KeyboardInterrupt:
             return C("c")
-        if k == curses.KEY_MOUSE:
-            return self.mouse_key(mouse)
+        if k == curses.KEY_MOUSE:     # terminfo knows "ESC [ <": the report follows
+            return self.sgr_mouse(self.read_mouse_rest(), mouse)
         if isinstance(k, str) and len(k) == 1 and (ord(k) < 32 or ord(k) == 127):
             k = ord(k)
         if k == ESC:
             k = self.decode_escape()
+            if k is None or k == K_MOUSE:
+                return k
         elif isinstance(k, int) and k > 255:
             k = self.named_key(k)
         if self.recording is not None and k not in (curses.KEY_F5, curses.KEY_F6,
@@ -358,27 +363,64 @@ class App:
             self.recording.append(k)
         return k
 
-    def mouse_key(self, wanted):
-        """Translate a curses mouse event. Wheel -> three arrow keys (works everywhere);
-        clicks/drags -> K_MOUSE (only when the caller asked for them)."""
+    def read_mouse_rest(self):
+        """After ncurses consumed the "ESC [ <" start of a mouse report: read "b;x;yM"."""
+        self.scr.nodelay(True)
+        buf = ""
         try:
-            _id, x, y, _z, b = curses.getmouse()
-        except curses.error:
+            for _i in range(24):
+                try:
+                    ch = self.scr.get_wch()
+                except curses.error:
+                    break
+                if not isinstance(ch, str):
+                    break
+                buf += ch
+                if ch in "Mm":
+                    break
+        finally:
+            self.scr.nodelay(False)
+        return buf
+
+    def sgr_mouse(self, body, wanted):
+        """Interpret an SGR (1006) mouse report "b;x;yM" / "b;x;ym".
+        Wheel -> three arrow keys (works in every view); clicks etc. -> K_MOUSE."""
+        m = re.fullmatch(r"(\d+);(\d+);(\d+)([Mm])", body)
+        if not m:
             return None
-        up = getattr(curses, "BUTTON4_PRESSED", 0)
-        down = getattr(curses, "BUTTON5_PRESSED", 0)
-        if b & up:
-            self.queue.extend([curses.KEY_UP] * 3)
-            return self.queue.popleft()
-        if down and b & down:
-            self.queue.extend([curses.KEY_DOWN] * 3)
-            return self.queue.popleft()
-        left = curses.BUTTON1_PRESSED | curses.BUTTON1_CLICKED | curses.BUTTON1_DOUBLE_CLICKED
-        if b & curses.BUTTON1_RELEASED:
-            self.btn_down = False
+        b, x, y = int(m.group(1)), int(m.group(2)) - 1, int(m.group(3)) - 1
+        press = m.group(4) == "M"
+        motion = bool(b & 32)
+        if b & 64:                                   # wheel
+            if press:
+                key = {0: curses.KEY_UP, 1: curses.KEY_DOWN, 2: curses.KEY_LEFT,
+                       3: curses.KEY_RIGHT}.get(b & 3)
+                if key:
+                    self.queue.extend([key] * (3 if key in (curses.KEY_UP, curses.KEY_DOWN)
+                                               else 1))
+                    return self.queue.popleft()
+            return None
+        if not press:
+            if (b & 3) == 0 and not b & 128:
+                self.btn_down = False
+            return None
         if not wanted:
             return None
-        if b & left:
+        if b & 128:                                  # extra buttons: 8 = back, 9 = forward
+            kind = {0: "back", 1: "forward"}.get(b & 3)
+            if kind is None:
+                return None
+            self.mouse_event = (x, y, kind)
+            return K_MOUSE
+        button = b & 3
+        if button == 0 and motion:
+            if self.btn_down:
+                self.mouse_event = (x, y, "drag")
+                return K_MOUSE
+            return None
+        if motion:
+            return None
+        if button == 0:
             now = time.time()
             last = self.last_click
             dbl = bool(last and last[:2] == (x, y) and now - last[2] < 0.4)
@@ -386,11 +428,8 @@ class App:
             self.btn_down = True
             self.mouse_event = (x, y, "double" if dbl else "click")
             return K_MOUSE
-        if b & curses.BUTTON3_PRESSED:
+        if button == 2:
             self.mouse_event = (x, y, "right")
-            return K_MOUSE
-        if b & curses.REPORT_MOUSE_POSITION and self.btn_down:
-            self.mouse_event = (x, y, "drag")
             return K_MOUSE
         return None
 
@@ -420,7 +459,7 @@ class App:
         self.scr.nodelay(True)
         seq = ""
         try:
-            for _i in range(8):
+            for _i in range(24):
                 try:
                     ch = self.scr.get_wch()
                 except curses.error:
@@ -434,6 +473,8 @@ class App:
             self.scr.nodelay(False)
         if not seq:
             return ESC
+        if seq.startswith("[<"):
+            return self.sgr_mouse(seq[2:], self._want_mouse)
         return ESCAPES.get(seq, ESC)
 
     def play_macro(self, times=1):
@@ -479,8 +520,34 @@ class App:
                 mode = "editor" if isinstance(self.view, Editor) else \
                     "browser" if self.view is self.browser else None
                 if mode:
-                    k = settings.keymaps[mode].get(k, k)
+                    k = self.resolve_key(mode, k)
+                    if k is None:
+                        continue
+                else:
+                    self.pending = ()
                 self.view.handle(k)
+
+    def resolve_key(self, mode, k):
+        """Apply the user's key map, including two-key sequences (like `zh`).
+        Returns the key to handle, or None while a sequence is still incomplete."""
+        km = settings.keymaps[mode]
+        built = actions.BUILTIN[mode]
+        if k == ESC and self.pending:
+            self.pending = ()
+            self.msg = ""
+            return None
+        seq = self.pending + (k,)
+        for table in (km, built):
+            if seq in table:
+                self.pending = ()
+                self.msg = ""
+                return table[seq]
+        if any(len(s) > len(seq) and s[:len(seq)] == seq for s in list(km) + list(built)):
+            self.pending = seq
+            self.info(seq_label(seq) + " …")
+            return None
+        self.pending = ()
+        return km.get((k,), k)
 
     # ---- screen
     def draw(self, overlay=None):
@@ -607,7 +674,9 @@ class App:
                 return
 
     def shell(self, cmd, cwd):
+        from .cli import mouse_off, mouse_on
         media.hide_graphics()
+        mouse_off()
         curses.def_prog_mode()
         curses.endwin()
         try:
@@ -622,5 +691,6 @@ class App:
         except (KeyboardInterrupt, EOFError):
             pass
         curses.reset_prog_mode()
+        mouse_on()
         self.scr.clear()
         self.scr.refresh()

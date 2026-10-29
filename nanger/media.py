@@ -26,7 +26,8 @@ except Exception:  # noqa: BLE001 - any import problem simply disables previews
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".jfif", ".gif", ".bmp", ".webp", ".tif", ".tiff",
              ".ico", ".ppm", ".pgm", ".pbm"}
 ARCHIVE_EXT = (".zip", ".jar", ".whl", ".apk", ".tar", ".tar.gz", ".tgz", ".tar.bz2",
-               ".tbz2", ".tar.xz", ".txz")
+               ".tbz2", ".tar.xz", ".txz", ".tar.zst", ".7z", ".rar", ".gz", ".bz2", ".xz",
+               ".zst", ".lz4", ".lzma", ".iso", ".cab", ".deb", ".rpm", ".cpio", ".arj", ".z")
 EXTERNAL_EXT = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".doc", ".xls", ".ppt",
                 ".rtf", ".epub", ".mp3", ".mp4", ".mkv", ".avi", ".mov", ".webm", ".flac",
                 ".ogg", ".wav", ".m4a", ".opus"}
@@ -455,6 +456,26 @@ def cached_render(kind, path, page, cols, rows, lazy=False):
 
 # ------------------------------------------------------------------ archives
 
+def _external_archive_lines(p, limit):
+    """7z, rar, iso, deb, ... : list with whichever extractor tool is installed."""
+    for cmd in (["bsdtar", "-tf", p], ["7z", "l", "-ba", p], ["7zz", "l", "-ba", p],
+                ["7za", "l", "-ba", p], ["unrar", "lb", p]):
+        if not shutil.which(cmd[0]):
+            continue
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=10,
+                               errors="replace")
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode == 0 and r.stdout.strip():
+            rows = [clean(l.rstrip()) for l in r.stdout.splitlines() if l.strip()]
+            return [(l, 0) for l in rows[:limit]], len(rows) > limit
+    ext = os.path.splitext(p)[1].lower()
+    return [(tr("[{ext} file, {size}]").format(ext=ext, size=human(os.path.getsize(p))),
+             A["ln"]),
+            (tr("Install p7zip / bsdtar to see the contents"), A["ln"])], False
+
+
 def archive_lines(p, limit):
     """-> ([(text, attr)], has_more)"""
     out, more = [], False
@@ -466,6 +487,9 @@ def archive_lines(p, limit):
                 for zi in infos[:limit]:
                     size = "" if zi.is_dir() else human(zi.file_size)
                     out.append(("%7s  %s" % (size, clean(zi.filename)), 0))
+        elif not p.lower().endswith((".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz",
+                                     ".txz")):
+            return _external_archive_lines(p, limit)
         else:
             with tarfile.open(p) as t:
                 for m in t:

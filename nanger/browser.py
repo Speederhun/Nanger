@@ -12,8 +12,8 @@ from .config import settings
 from .fsops import load_bookmarks, save_bookmarks, trash
 from .helptext import browser_help
 from .i18n import tr
-from .keys import BACKSPACE, C, ENTER, ESC
-from .media import OFFICE_EXT, archive_lines, office_text, can_images, cached_render, draw_grid, file_kind, pdf_text
+from .keys import BACKSPACE, C, ENTER, ESC, K_ALT_LEFT, K_ALT_RIGHT
+from .media import ARCHIVE_EXT, OFFICE_EXT, archive_lines, office_text, can_images, cached_render, draw_grid, file_kind, pdf_text
 from .term import A, clean, draw_help, put
 from .util import human, unique_path
 
@@ -57,6 +57,7 @@ class Browser:
         self.app = app
         self.cwd = os.path.abspath(os.path.expanduser(path))
         self.prev_cwd = None
+        self.back, self.fwd = [], []      # folder history (mouse back/forward buttons, Alt+arrows)
         self.hidden = settings.show_hidden
         self.sort = settings.sort
         self.reverse = settings.sort_reverse
@@ -120,7 +121,7 @@ class Browser:
         self.sel = max(0, min(self.sel, len(e) - 1))
         self._pv_key = None
 
-    def cd(self, path, select=None):
+    def cd(self, path, select=None, hist=False):
         path = os.path.abspath(os.path.expanduser(path))
         if not os.path.isdir(path):
             self.app.error(tr("Not a folder: {path}").format(path=path))
@@ -132,9 +133,29 @@ class Browser:
             return
         if path != self.cwd:
             self.prev_cwd = self.cwd
+            if not hist:
+                self.back.append(self.cwd)
+                del self.fwd[:]
+                del self.back[:-100]
         self.cwd = path
         self.sel = self.top = 0
         self.refresh(select)
+
+    def go_back(self):
+        """Previous folder from the history; without history: the parent folder."""
+        if self.back:
+            came = self.cwd
+            self.fwd.append(came)
+            self.cd(self.back.pop(), hist=True)
+            return
+        parent = os.path.dirname(self.cwd)
+        if parent != self.cwd:
+            self.cd(parent, select=os.path.basename(self.cwd))
+
+    def go_forward(self):
+        if self.fwd:
+            self.back.append(self.cwd)
+            self.cd(self.fwd.pop(), hist=True)
 
     def current(self):
         if not self.entries:
@@ -165,6 +186,10 @@ class Browser:
             self.sel = 0
         elif k in (curses.KEY_END, "G"):
             self.sel = max(0, n - 1)
+        elif k == K_ALT_LEFT:
+            self.go_back()
+        elif k == K_ALT_RIGHT:
+            self.go_forward()
         elif k in (curses.KEY_LEFT, "h") or k in BACKSPACE:
             parent = os.path.dirname(self.cwd)
             if parent != self.cwd:
@@ -311,6 +336,12 @@ class Browser:
         if kind == "right":
             self.handle(curses.KEY_LEFT)
             return
+        if kind == "back":
+            self.go_back()
+            return
+        if kind == "forward":
+            self.go_forward()
+            return
         if not 1 <= y <= th or kind == "drag":
             return
         if x < w1:
@@ -437,6 +468,8 @@ class Browser:
             return A["link"]
         if os.path.isdir(p):
             return A["dir"]
+        if p.lower().endswith(ARCHIVE_EXT):
+            return A["arc"]
         if os.access(p, os.X_OK):
             return A["exe"]
         return 0

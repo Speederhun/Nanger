@@ -245,4 +245,9 @@ HU = {
         "Rendezés: n = név, d = dátum, s = méret, e = kiterjesztés, r = fordított ",
     "reversed": "fordítva",
     "name, A–Z": "név, A–Z",
+    "Install p7zip / bsdtar to see the contents": "A tartalomhoz telepítsd: p7zip / bsdtar",
+    "New key for “{name}”: {first} + a second key, or Enter to finish: ":
+        "Új billentyű ehhez: „{name}”: {first} + második billentyű, vagy Enter a befejezéshez: ",
+    "In the editor use Ctrl or function keys": "A szerkesztőben Ctrl- vagy F-billentyűt használj",
+    "Conflicts with “{name}”": "Ütközik ezzel: „{name}”",
 }

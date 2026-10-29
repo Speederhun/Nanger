@@ -589,7 +589,7 @@ def test_every_message_has_hungarian_translation():
     src = ast.parse((ROOT / "nanger" / "actions.py").read_text())
     for n in ast.walk(src):  # the key-menu labels live in tables, not in tr() calls
         if isinstance(n, ast.Tuple) and n.elts and isinstance(n.elts[0], ast.Constant) \
-                and isinstance(n.elts[0].value, str) and len(n.elts) == 2:
+                and isinstance(n.elts[0].value, str) and len(n.elts[0].value) > 1 and len(n.elts) == 2:
             ids.add(n.elts[0].value)
     assert ids - set(HU) == set()
     for k, v in HU.items():  # a {mezők} egyezzenek
@@ -792,6 +792,7 @@ def test_key_menu_rebind_and_persist(spawn, work, env):
         t.send("j")
     t.send("\r")
     t.send("X")                      # D helyett X törli a fájlt
+    t.send("\r")                     # második billentyű nincs: Enter = kész
     assert "Elmentve" in t.text()
     cfg = (Path(env["XDG_CONFIG_HOME"]) / "nanger" / "config.ini").read_text()
     assert "X = D" in cfg and "D = none" in cfg
@@ -809,10 +810,10 @@ def test_keys_module_swap_and_reset():
     sys.path.insert(0, str(ROOT))
     from nanger import actions
     from nanger.keys import NOOP
-    km, other = actions.rebind("browser", {}, 6, "X")           # Delete -> X
-    assert km == {"X": "D", "D": NOOP} and other is None
-    km, other = actions.rebind("browser", km, 2, "X")           # New file -> X: swap
-    assert other == 6 and actions.bindings("browser", km)[6] == "n"
+    km, other = actions.rebind("browser", {}, 6, ("X",))        # Delete -> X
+    assert km == {("X",): "D", ("D",): NOOP} and other is None
+    km, other = actions.rebind("browser", km, 2, ("X",))        # New file -> X: swap
+    assert other == 6 and actions.bindings("browser", km)[6] == ("n",)
     km, _ = actions.reset("browser", km, 2)
     km, _ = actions.reset("browser", km, 6)
     assert km == {}
@@ -863,3 +864,78 @@ def test_mouse_can_be_disabled(work, env):
                 pass
             p.terminate(force=True)
         assert (b"1000h" in log.read_bytes()) == expect
+
+
+def test_zh_toggles_hidden_files(spawn, work):
+    (work / ".titkos").write_text("x")
+    (work / "latszik.txt").write_text("x")
+    t = spawn(".")
+    assert ".titkos" not in t.text()
+    t.send("z")
+    t.send("h")
+    assert ".titkos" in t.text()
+    t.send("z")
+    t.send("h")
+    assert ".titkos" not in t.text()
+
+
+def test_two_key_binding_from_menu(spawn, work, env):
+    (work / ".titkos").write_text("x")
+    t = spawn(".")
+    t.send("K")
+    for _ in range(17):                 # "Hidden files" a 18. sor
+        t.send("j")
+    t.send("\r")
+    t.send("g")
+    t.send("i")                         # g + i
+    assert "Elmentve" in t.text()
+    cfg = (Path(env["XDG_CONFIG_HOME"]) / "nanger" / "config.ini").read_text()
+    assert "g i = ." in cfg
+    t.send("q")
+    t.send("g")
+    t.send("i")
+    assert ".titkos" in t.text()
+
+
+def test_archives_are_purple(spawn, work):
+    with zipfile.ZipFile(work / "a.zip", "w") as z:
+        z.writestr("x", "1")
+    (work / "b.txt").write_text("x")
+    t = spawn(".")
+    row = next(y for y in range(1, 6) if "a.zip" in t.row(y))
+    cell = t.scr.buffer[row][19]
+    assert cell.fg in ("magenta", "ff00ff", "af00af", "800080") or cell.fg.startswith(("8", "a", "f")) \
+        and cell.fg != "default", cell.fg
+    row_b = next(y for y in range(1, 6) if "b.txt" in t.row(y))
+    assert t.scr.buffer[row_b][19].fg != cell.fg
+
+
+def test_wheel_down_scrolls_and_back_button_goes_back(spawn, work):
+    for n in "abcde":
+        (work / (n + ".txt")).write_text(n)
+    (work / "sub").mkdir()
+    (work / "sub" / "in.txt").write_text("x")
+    t = spawn(".")
+    t.send("\x1b[<65;30;3M", 0.3)
+    assert "4/6" in t.text()            # 3 sor lefelé (a mappa az 1.)
+    t.send("\x1b[<64;30;3M", 0.3)
+    assert "1/6" in t.text()
+    t.send("g")
+    t.send("\r")                        # be a sub mappába
+    assert "in.txt" in t.row(1)
+    t.send("\x1b[<128;30;3M", 0.3)      # vissza gomb
+    t.send("\x1b[<128;30;3m", 0.3)
+    assert "sub" in t.text() and "a.txt" in t.text()
+    assert t.row(0).rstrip().endswith("work")
+
+
+def test_mouse_drag_selects_text_in_editor(spawn, work):
+    (work / "t.txt").write_text("abcdefghij\n")
+    t = spawn("t.txt")
+    t.send("\x1b[<0;5;2M", 0.15)       # lenyom a 3. karakternél (gutter = 2)
+    t.send("\x1b[<32;7;2M", 0.15)
+    t.send("\x1b[<32;9;2M", 0.15)
+    t.send("\x1b[<0;9;2m", 0.2)
+    t.send("\x7f", 0.3)                 # Backspace törli a kijelölést
+    t.send(CTRL("s"))
+    assert (work / "t.txt").read_text() == "abghij\n"

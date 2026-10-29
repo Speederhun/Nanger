@@ -42,16 +42,26 @@ def setup_locale():
                 continue
 
 
-def enable_mouse():
-    if not config.settings.mouse or os.environ.get("NANGER_MOUSE") == "0":
-        return
+MOUSE_ON = "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
+MOUSE_OFF = "\x1b[?1006l\x1b[?1002l\x1b[?1000l"
+
+
+def mouse_enabled():
+    return config.settings.mouse and os.environ.get("NANGER_MOUSE") != "0"
+
+
+def mouse_on():
+    if mouse_enabled():
+        try:
+            os.write(1, MOUSE_ON.encode())
+        except OSError:
+            pass
+
+
+def mouse_off():
     try:
-        curses.mouseinterval(0)
-        want = (curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED | curses.BUTTON3_PRESSED
-                | getattr(curses, "BUTTON4_PRESSED", 0) | getattr(curses, "BUTTON5_PRESSED", 0)
-                | curses.REPORT_MOUSE_POSITION)
-        curses.mousemask(want)
-    except (curses.error, AttributeError):
+        os.write(1, MOUSE_OFF.encode())
+    except OSError:
         pass
 
 
@@ -97,8 +107,11 @@ def main(argv=None):
         curses.noecho()
         scr.keypad(True)
         init_colors()
-        enable_mouse()
+        mouse_on()
         App(scr, target, line).run()
 
-    curses.wrapper(run)
+    try:
+        curses.wrapper(run)
+    finally:
+        mouse_off()
     return 0

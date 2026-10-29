@@ -142,3 +142,34 @@ def label_key(label):
     if len(label) == 1:
         return label
     return None
+
+
+def parse_seq(name):
+    """A key or a sequence of up to two keys: 'x', 'ctrl-s', 'z h', 'zh' -> tuple of keys."""
+    one = parse_key(name)
+    if one is not None:
+        return (one,)
+    parts = name.split()
+    if 1 < len(parts) <= 2:
+        keys = [parse_key(x) for x in parts]
+        return tuple(keys) if None not in keys else None
+    raw = name.strip()
+    if len(raw) == 2 and not raw.isspace():
+        return (raw[0], raw[1])
+    return None
+
+
+def seq_name(seq):
+    """Config-file spelling of a key sequence ('x', 'ctrl-s', 'z h')."""
+    names = [key_name(k) for k in seq]
+    return None if None in names else " ".join(names)
+
+
+def seq_label(seq):
+    """Human readable: 'Ctrl+S', 'zh', 'g Home'."""
+    if seq is None:
+        return "—"
+    labels = [key_label(k) for k in seq]
+    if all(len(l) == 1 for l in labels):
+        return "".join(labels)
+    return " ".join(labels)

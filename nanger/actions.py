@@ -1,6 +1,9 @@
-"""The remappable actions (what the key menu shows) and the key-binding logic."""
+"""The remappable actions (what the key menu shows) and the key-binding logic.
+
+A binding is a tuple of one or two keys (a "sequence", e.g. ("z", "h")); the key map is
+{pressed sequence: default key of the action}."""
 from .i18n import tr
-from .keys import NOOP, key_name, parse_key
+from .keys import NOOP, parse_key, seq_name
 
 # (message id, default key name)
 BROWSER = [
@@ -19,6 +22,8 @@ EDITOR = [
     ("Line numbers", "ctrl-l"), ("Files", "f4"), ("Help", "f1"),
 ]
 TABLES = {"browser": BROWSER, "editor": EDITOR}
+# built-in extra shortcuts (not remappable, shadowed by the user's own bindings)
+BUILTIN = {"browser": {("z", "h"): "."}, "editor": {}}
 
 
 def label(mode, i):
@@ -26,16 +31,16 @@ def label(mode, i):
 
 
 def defaults(mode):
-    return [parse_key(d) for _, d in TABLES[mode]]
+    return [(parse_key(d),) for _, d in TABLES[mode]]
 
 
 def bindings(mode, keymap):
-    """Current key of each action (None = unbound), derived from the key map."""
+    """Current key sequence of each action (None = unbound), derived from the key map."""
     out = []
     for d in defaults(mode):
-        keys = [k for k, v in keymap.items() if v == d and k != NOOP]
-        if keys:
-            out.append(keys[0])
+        seqs = [s for s, v in keymap.items() if v == d[0] and s != d and v != NOOP]
+        if seqs:
+            out.append(sorted(seqs, key=len)[0])
         elif keymap.get(d) is None:
             out.append(d)
         else:
@@ -44,25 +49,39 @@ def bindings(mode, keymap):
 
 
 def keymap_from(mode, binds):
-    """Key map (pressed -> default key) that realises the given bindings."""
+    """Key map (pressed sequence -> default key) that realises the given bindings."""
     km = {}
     ds = defaults(mode)
     for b, d in zip(binds, ds):
         if b is not None and b != d:
-            km[b] = d
+            km[b] = d[0]
     for b, d in zip(binds, ds):
         if b != d and d not in km:
             km[d] = NOOP
     return km
 
 
-def rebind(mode, keymap, index, key):
-    """Give action `index` the key `key`; if another action has it they swap.
-    Returns (new keymap, swapped action index or None)."""
+def conflicts(mode, binds, index, seq):
+    """Index of another action whose binding is a strict prefix of `seq` or starts with it
+    (that would make one of them unreachable), else None."""
+    for i, b in enumerate(binds):
+        if i != index and b and b != seq and (b[:len(seq)] == seq or seq[:len(b)] == b):
+            return i
+    return None
+
+
+def rebind(mode, keymap, index, seq):
+    """Give action `index` the key sequence `seq`; if another action has exactly that
+    sequence they swap. Returns (new keymap, swapped index or None).
+    Raises ValueError(<index of the conflicting action>) on a prefix conflict."""
     binds = bindings(mode, keymap)
-    other = next((i for i, b in enumerate(binds) if b == key and i != index), None)
+    other = next((i for i, b in enumerate(binds) if b == seq and i != index), None)
+    if other is None:
+        c = conflicts(mode, binds, index, seq)
+        if c is not None:
+            raise ValueError(c)
     old = binds[index]
-    binds[index] = key
+    binds[index] = seq
     if other is not None:
         binds[other] = old
     return keymap_from(mode, binds), other
@@ -73,10 +92,11 @@ def reset(mode, keymap, index):
 
 
 def names(keymap):
-    """{pressed: target} -> [(pressed name, target name)] for the config file."""
+    """{pressed sequence: target} -> [(pressed name, target name)] for the config file."""
+    from .keys import key_name
     out = []
-    for k, v in keymap.items():
-        a, b = key_name(k), key_name(v)
+    for seq, v in keymap.items():
+        a, b = seq_name(seq), key_name(v)
         if a and b:
             out.append((a, b))
     return sorted(out)

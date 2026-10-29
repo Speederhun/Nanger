@@ -3,7 +3,7 @@ import curses
 
 from . import actions, config
 from .i18n import tr
-from .keys import BACKSPACE, C, ENTER, ESC, key_label
+from .keys import BACKSPACE, C, ENTER, ESC, key_label, seq_label
 from .term import A, draw_help, put
 
 
@@ -41,23 +41,45 @@ class KeyMenu:
             mode, i = self.current()
             self.apply(mode, i, None)
 
+    def read_seq(self, name, mode):
+        """Ask for one or two keys. None = cancelled."""
+        first = self.app.read_key(tr("New key for “{name}” (Esc = cancel): ").format(name=name))
+        if first is None:
+            return None
+        keys = [first]
+        second = self.app.read_key(
+            tr("New key for “{name}”: {first} + a second key, or Enter to finish: ")
+            .format(name=name, first=seq_label((first,))))
+        if second is None:
+            return None
+        if second not in ENTER:
+            keys.append(second)
+        for k in keys:
+            if key_label(k) == "?" or k in ("=", ":", "[", "#", ";"):
+                self.app.error(tr("That key cannot be used"))
+                return None
+            if mode == "editor" and isinstance(k, str):
+                self.app.error(tr("In the editor use Ctrl or function keys"))
+                return None
+        return tuple(keys)
+
     def change(self):
         mode, i = self.current()
-        name = actions.label(mode, i)
-        key = self.app.read_key(tr("New key for “{name}” (Esc = cancel): ").format(name=name))
-        if key is None:
-            return
-        if key_label(key) == "?" or key in ("=", ":", "[", "#", ";"):
-            self.app.error(tr("That key cannot be used"))
-            return
-        self.apply(mode, i, key)
+        seq = self.read_seq(actions.label(mode, i), mode)
+        if seq is not None:
+            self.apply(mode, i, seq)
 
     def apply(self, mode, i, key):
         km = config.settings.keymaps[mode]
         if key is None:
             new, other = actions.reset(mode, km, i)
         else:
-            new, other = actions.rebind(mode, km, i, key)
+            try:
+                new, other = actions.rebind(mode, km, i, key)
+            except ValueError as e:
+                self.app.error(tr("Conflicts with “{name}”").format(
+                    name=actions.label(mode, e.args[0])))
+                return
         config.settings.keymaps[mode] = new
         try:
             config.save_keymaps()
@@ -71,7 +93,7 @@ class KeyMenu:
 
     def mouse(self, x, y, kind):
         i = self.top + y - 1
-        if kind == "right":
+        if kind in ("right", "back"):
             self.app.close_results()
         elif kind in ("click", "double", "drag") and 1 <= y and 0 <= i < len(self.rows):
             self.sel = i
@@ -98,9 +120,9 @@ class KeyMenu:
             if a == 0:
                 head = tr("File manager") if mode == "browser" else tr("Editor")
             b, d = binds[mode][a], defs[mode][a]
-            text = " %-28s %-12s" % (actions.label(mode, a)[:28], key_label(b))
+            text = " %-28s %-14s" % (actions.label(mode, a)[:28], seq_label(b))
             if b != d:
-                text += "  (%s: %s)" % (tr("default"), key_label(d))
+                text += "  (%s: %s)" % (tr("default"), seq_label(d))
             attr = curses.A_REVERSE if i == self.sel else (curses.A_BOLD if b != d else 0)
             tag = ("[%s] " % head) if head else "      "
             put(scr, 1 + r, 0, (tag + text)[:w].ljust(w), attr)

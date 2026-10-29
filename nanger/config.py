@@ -2,10 +2,10 @@
 import configparser
 import os
 
-from .keys import parse_key
+from .keys import parse_key, parse_seq
 
 COLOR_NAMES = ("default", "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")
-COLOR_KEYS = ("directory", "executable", "link", "comment", "string", "number", "keyword",
+COLOR_KEYS = ("directory", "executable", "link", "archive", "comment", "string", "number", "keyword",
               "error", "marked")
 SORT_MODES = ("name", "size", "date", "ext")
 
@@ -38,6 +38,7 @@ git = yes
 directory = blue
 executable = green
 link = cyan
+archive = magenta
 comment = green
 string = yellow
 number = cyan
@@ -163,7 +164,7 @@ def load(path=None):
         if not cp.has_section(section):
             continue
         for src, dst in cp.items(section):
-            a, b = parse_key(src), parse_key(dst)
+            a, b = parse_seq(src), parse_key(dst)
             if a is None or b is None:
                 warn(section, src, dst)
             else:
