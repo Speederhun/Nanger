@@ -1021,3 +1021,9 @@ def test_double_key_remap_yy(spawn, work, env):
     assert "y …" in t.text() or "y…" in t.text().replace(" ", "")   # egy y: csak a sorozat eleje
     t.send("y")
     assert "kijelölve" in t.text() or "másolásra" in t.text()       # a yy lefutott: másolás
+
+
+def test_doctor_reports_environment(env):
+    import subprocess
+    out = subprocess.run([NANGER, "--doctor"], capture_output=True, text=True, env=env).stdout
+    assert "nanger 1." in out and "Pillow:" in out and "graphics protocol:" in out

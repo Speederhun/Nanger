@@ -270,4 +270,5 @@ HU = {
     "{n} items: {size}, {files} files, {dirs} folders": "{n} elem: {size}, {files} fájl, {dirs} mappa",
     "{files} files, {dirs} folders": "{files} fájl, {dirs} mappa",
     "{n} selected, {size}": "{n} kijelölve, {size}",
+    "check why previews or colours do not work": "annak vizsgálata, miért nem működik az előnézet vagy a szín",
 }

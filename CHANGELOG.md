@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.1
+
+- `nanger --doctor` shows why previews/colours do not work (Python, Pillow, locale, terminal,
+  graphics protocol, helper tools).
+- Falls back to a UTF-8 locale when `LANG` is missing (macOS/SSH), which previously disabled
+  image previews.
+- Homebrew formula uses the default `python`, so it always matches Homebrew's `pillow`.
+
 ## 1.8.0
 
 - **Pack / extract:** mark files with Space, `Z` packs them (`.7z` needs p7zip; `.zip`, `.tar.gz`,
