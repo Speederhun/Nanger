@@ -346,4 +346,13 @@ HU = {
     "Open file": "Nyitott fájl",
     "Password: ": "Jelszó: ",
     "cancelled": "megszakítva",
+    "Password needed or wrong": "Jelszó szükséges, vagy hibás",
+    "The archive is password protected": "Az archívum jelszóval védett",
+    "Install p7zip to open this encrypted zip": "Telepítsd a p7zip-et ennek a titkosított zipnek a megnyitásához",
+    "A password needs p7zip (7z) and a .7z or .zip archive": "A jelszóhoz p7zip (7z) és .7z vagy .zip archívum kell",
+    "Password (empty = none): ": "Jelszó (üres = nincs): ",
+    "Password for {name}: ": "Jelszó ({name}): ",
+    "Wrong password — {name}: ": "Hibás jelszó — {name}: ",
+    "[encrypted archive — press U to extract it with the password]": "[titkosított archívum — U: kicsomagolás jelszóval]",
+    "[encrypted — press U to extract it with the password]": "[titkosított — U: kicsomagolás jelszóval]",
 }

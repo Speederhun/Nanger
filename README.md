@@ -18,6 +18,7 @@ English and Hungarian interface · Hungarian docs: [README.hu.md](README.hu.md)
 - Opens documents/media with the desktop's default program (`xdg-open`)
 - **Colour themes** (`T`): dark, light, Solarized, Gruvbox, Nord
 - **Permissions / owner** of the marked files (`P`, `O`), **side-by-side compare** (`=`, `:diff`)
+- **Password-protected archives** (`Z` / `U`, .7z and .zip with AES-256, needs p7zip)
 - **Remote folders over SSH** (`M` or `nanger user@host:/path`, via `sshfs`)
 - **Crash recovery**: unsaved edits are snapshotted every 5 s and offered back after a crash or closed terminal
 - Config file with colours, plus a **menu to change any keyboard shortcut** (`K` / `F9`)

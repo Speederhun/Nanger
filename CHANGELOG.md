@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.12.0
+
+- **Password-protected archives**: `U` asks for the password of encrypted `.zip` / `.7z` (and other
+  7z-readable) archives (hidden input, 3 retries, no half-filled folder left behind); `Z` offers an
+  optional password for `.7z` (AES-256, file names hidden too) and `.zip` (AES-256). Needs `7z`
+  (p7zip); the password goes to 7z through stdin, never the command line. The preview shows
+  "[encrypted archive — press U …]".
+- AUR automation: `packaging/aur/setup-aur.sh` does the one-time setup (SSH key, package, GitHub
+  secret); the release workflow then pushes every new version to the AUR (`master` branch fix).
+
 ## 1.11.2
 
 - **Remote folders now also work with a password**: if the SSH keys are refused, `M` (and `nanger user@host:/dir`) asks for the password (hidden) and retries; the password goes to `sshfs` through stdin, never the command line. New host keys are trusted on first use (`StrictHostKeyChecking=accept-new`).

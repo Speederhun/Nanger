@@ -958,6 +958,9 @@ def test_select_all_status_and_folder_size(spawn, work):
     assert "dir: 2.9K, 1 fájl, 0 mappa" in t.text()
 
 
+HAS7Z = bool(shutil.which("7z") or shutil.which("7zz") or shutil.which("7za"))
+
+
 def test_compress_and_extract_zip_and_targz(spawn, work):
     (work / "a.txt").write_text("alma\n")
     (work / "b.txt").write_text("korte\n")
@@ -967,6 +970,8 @@ def test_compress_and_extract_zip_and_targz(spawn, work):
     t.send("Z")
     t.send(CTRL("u"))
     t.send("csomag.zip\r", 0.8)
+    if HAS7Z:
+        t.send("\r", 0.8)                                    # üres jelszó
     assert (work / "csomag.zip").exists()
     with zipfile.ZipFile(work / "csomag.zip") as z:
         assert sorted(z.namelist()) == ["a.txt", "b.txt"]
@@ -991,7 +996,8 @@ def test_compress_7z(spawn, work):
     (work / "a.txt").write_text("alma\n")
     t = spawn(".")
     t.send("Z")
-    t.send("\r", 1.5)
+    t.send("\r")                                            # név
+    t.send("\r", 1.5)                                       # üres jelszó
     assert (work / "a.txt.7z").exists()
 
 
@@ -1415,3 +1421,54 @@ def test_remote_password_login_with_fake_sshfs(spawn, work, tmp_path):
     t3.send("me@box:/srv\r")
     t3.send("rossz\r")
     assert "Permission denied" in t3.text()
+
+
+@pytest.mark.skipif(not HAS7Z, reason="nincs 7z")
+@pytest.mark.parametrize("ext", ["7z", "zip"])
+def test_password_archive_roundtrip(spawn, work, ext):
+    (work / "titkos.txt").write_text("nagyon titkos\n")
+    t = spawn(".")
+    t.send("Z")
+    t.send(CTRL("u"))
+    t.send("vedett.%s\r" % ext)
+    assert "Jelszó (üres = nincs)" in t.text()
+    t.send("jelszo1")
+    assert "jelszo1" not in t.text()
+    t.send("\r", 1.5)
+    arc = work / ("vedett." + ext)
+    assert arc.exists()
+    assert b"nagyon titkos" not in arc.read_bytes()          # tényleg titkosított
+    (work / "titkos.txt").unlink()
+    t2 = spawn(".")
+    t2.send("U")                                              # az archívumon áll a kurzor
+    t2.send("\r", 0.5)                                       # célmappa
+    assert "Jelszó (vedett.%s)" % ext in t2.text()
+    t2.send("rossz\r", 1.0)
+    assert "Hibás jelszó" in t2.text()
+    t2.send("jelszo1\r", 1.5)
+    assert (work / "vedett" / "titkos.txt").read_text() == "nagyon titkos\n"
+
+
+@pytest.mark.skipif(not HAS7Z, reason="nincs 7z")
+def test_encrypted_archive_preview_and_api(work):
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from nanger import archiver
+    (work / "a.txt").write_text("x")
+    arc = str(work / "e.7z")
+    archiver.compress(str(work), ["a.txt"], arc, "pw")
+    with pytest.raises(archiver.ArchiveError) as e:
+        archiver.extract(arc, str(work / "o1"))
+    assert e.value.needs_password and not (work / "o1").exists()
+    with pytest.raises(archiver.ArchiveError) as e:
+        archiver.extract(arc, str(work / "o2"), "wrong")
+    assert e.value.needs_password
+    archiver.extract(arc, str(work / "o3"), "pw")
+    assert (work / "o3" / "a.txt").read_text() == "x"
+    from nanger import term
+    term.A.setdefault("ln", 0)
+    m = load_module()
+    lines, _ = m.archive_lines(arc, 50)
+    assert "titkosított" in lines[0][0] or "encrypted" in lines[0][0]
+    with pytest.raises(archiver.ArchiveError):
+        archiver.compress(str(work), ["a.txt"], str(work / "t.tar.gz"), "pw")

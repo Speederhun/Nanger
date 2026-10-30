@@ -109,10 +109,15 @@ jobs:
           mkdir -p ~/.ssh && echo "$AUR_KEY" > ~/.ssh/aur && chmod 600 ~/.ssh/aur
           ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur"
-          git clone ssh://aur@aur.archlinux.org/nanger.git /tmp/aur
+          git clone ssh://aur@aur.archlinux.org/nanger.git /tmp/aur || git init -q /tmp/aur
+          git -C /tmp/aur remote get-url origin >/dev/null 2>&1 || \
+            git -C /tmp/aur remote add origin ssh://aur@aur.archlinux.org/nanger.git
           VERSION="${{ steps.v.outputs.version }}"
           sed "s/^pkgver=.*/pkgver=$VERSION/; s/^pkgrel=.*/pkgrel=1/" packaging/aur/PKGBUILD > /tmp/aur/PKGBUILD
           sed "s/pkgver = .*/pkgver = $VERSION/; s/#tag=v[0-9.]*/#tag=v$VERSION/" packaging/aur/.SRCINFO > /tmp/aur/.SRCINFO
           cd /tmp/aur
           git config user.name "Speederhun"; git config user.email "noreply@github.com"
-          git add -A && git commit -qm "Update to $VERSION" && git push
+          git checkout -q -B master          # the AUR only accepts the master branch
+          git add -A
+          git diff --cached --quiet || git commit -qm "Update to $VERSION"
+          git push origin master

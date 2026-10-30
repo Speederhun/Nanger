@@ -110,7 +110,7 @@ MOVING (arrows or vim keys)
   c       jump to a typed path              /   search by name
   Space   mark    a   mark / unmark all    A   invert the marks
   Z   pack the marked files (or the current one) into .7z / .zip / .tar.gz
-  U   extract the archive(s) into a folder of the same name
+  U   extract the archive(s) into a folder of the same name (asks for the password if encrypted)
   i   size of the marked items / current folder
   P   permissions (chmod) of the marked items: 644, u+x, a-w; add -R for folders
   O   owner (chown): user, user:group, :group  (offers sudo when not permitted)
@@ -168,7 +168,7 @@ MOZGÁS (nyilak vagy vim-billentyűk)
   c       ugrás egy beírt elérési útra    /   keresés név alapján
   Szóköz  jelöl    a   mind kijelöl / törli    A   kijelölés megfordítása
   Z   a kijelöltek (vagy az aktuális) becsomagolása .7z / .zip / .tar.gz-be
-  U   archívum kicsomagolása a nevével azonos mappába
+  U   archívum kicsomagolása a nevével azonos mappába (titkosítottnál jelszót kér)
   i   a kijelöltek / az aktuális mappa mérete
   P   a kijelöltek jogosultsága (chmod): 644, u+x, a-w; mappákhoz -R
   O   tulajdonos (chown): user, user:csoport, :csoport  (ha nem engedélyezett, sudo-t kínál)

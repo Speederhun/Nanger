@@ -480,6 +480,9 @@ def _external_archive_lines(p, limit):
                                errors="replace", stdin=subprocess.DEVNULL)
         except (OSError, subprocess.SubprocessError):
             continue
+        if "password" in (r.stdout + r.stderr).lower():
+            return [(tr("[encrypted archive — press U to extract it with the password]"),
+                     A["ln"])], False
         if r.returncode == 0 and r.stdout.strip():
             rows = [_nice_row(l.rstrip()) for l in r.stdout.splitlines() if l.strip()]
             return [(l, 0) for l in rows[:limit]], len(rows) > limit
@@ -496,6 +499,9 @@ def archive_lines(p, limit):
         if p.lower().endswith((".zip", ".jar", ".whl", ".apk")):
             with zipfile.ZipFile(p) as z:
                 infos = z.infolist()
+                if any(i.flag_bits & 0x1 for i in infos):
+                    out.append((tr("[encrypted — press U to extract it with the password]"),
+                                A["ln"]))
                 more = len(infos) > limit
                 for zi in infos[:limit]:
                     size = "" if zi.is_dir() else human(zi.file_size)

@@ -202,10 +202,15 @@ class Browser:
         if "/" in name or name in (".", ".."):
             app.error(tr("Invalid name: {name}").format(name=name))
             return
+        pw = None
+        if archiver.can_encrypt(name):
+            pw = app.prompt(tr("Password (empty = none): "), "", None, secret=True)
+            if pw is None:
+                return
         app.info(tr("Compressing…"))
         app.draw()
         try:
-            archiver.compress(self.cwd, names, os.path.join(self.cwd, name))
+            archiver.compress(self.cwd, names, os.path.join(self.cwd, name), pw or None)
         except archiver.ArchiveError as e:
             app.error(tr("Archive failed: {error}").format(error=e))
             return
@@ -239,13 +244,27 @@ class Browser:
         app.draw()
         first = None
         for p, dest in dests.items():
-            try:
-                archiver.extract(p, dest)
-                first = first or os.path.basename(dest)
-            except archiver.ArchiveError as e:
-                app.error(tr("Archive failed: {error}").format(error=e))
-                self.refresh()
-                return
+            pw = None
+            for attempt in range(4):
+                try:
+                    archiver.extract(p, dest, pw)
+                    first = first or os.path.basename(dest)
+                    break
+                except archiver.ArchiveError as e:
+                    if e.needs_password and attempt < 3:
+                        label = tr("Password for {name}: ") if attempt == 0 else \
+                            tr("Wrong password — {name}: ")
+                        pw = app.prompt(label.format(name=os.path.basename(p)), "", None,
+                                        secret=True)
+                        if pw is None:
+                            self.refresh()
+                            return
+                        app.info(tr("Extracting…"))
+                        app.draw()
+                        continue
+                    app.error(tr("Archive failed: {error}").format(error=e))
+                    self.refresh()
+                    return
         self.tagged.clear()
         self.refresh(first)
         app.info(tr("Extracted {n} archive(s)").format(n=len(dests)))

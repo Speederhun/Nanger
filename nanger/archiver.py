@@ -14,7 +14,9 @@ EXTRACTABLE = TAR_EXT + ZIP_EXT + (".7z", ".rar", ".iso", ".cab", ".deb", ".rpm"
 
 
 class ArchiveError(Exception):
-    pass
+    def __init__(self, msg, needs_password=False):
+        super().__init__(msg)
+        self.needs_password = needs_password   # True: ask the user for a password and retry
 
 
 def seven_zip():
@@ -37,23 +39,43 @@ def stem(name):
     return name
 
 
-def _run(cmd, cwd=None):
+def _run(cmd, cwd=None, password=None, twice=False):
+    """Run an archiver. The password goes through stdin (7z asks for it there), never argv."""
+    data = None
+    if password is not None:
+        data = (password + "\n") * (2 if twice else 1)
     try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, errors="replace")
+        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, errors="replace",
+                           input=data, stdin=subprocess.DEVNULL if data is None else None)
     except OSError as e:
         raise ArchiveError(e.strerror or str(e))
     if r.returncode != 0:
+        text = r.stderr.strip() + "\n" + r.stdout.strip()
+        if "password" in text.lower():
+            raise ArchiveError(tr("Password needed or wrong"), needs_password=True)
         msg = (r.stderr.strip() or r.stdout.strip()).splitlines()
         raise ArchiveError(msg[-1] if msg else "exit %d" % r.returncode)
 
 
-def compress(cwd, names, archive):
-    """Pack `names` (relative to `cwd`) into `archive` (a path). Format by extension."""
+def can_encrypt(archive):
+    return archive.lower().endswith((".7z", ".zip")) and seven_zip() is not None
+
+
+def compress(cwd, names, archive, password=None):
+    """Pack `names` (relative to `cwd`) into `archive` (a path). Format by extension.
+    A password (.7z / .zip, needs 7z) encrypts the contents with AES-256 (7z: names too)."""
     if os.path.lexists(archive):
         raise ArchiveError(tr("Already exists: {name}").format(name=os.path.basename(archive)))
     low = archive.lower()
     try:
-        if low.endswith(ZIP_EXT):
+        if password:
+            exe = seven_zip()
+            if not exe or not low.endswith((".7z", ".zip")):
+                raise ArchiveError(tr("A password needs p7zip (7z) and a .7z or .zip archive"))
+            opts = ["-mem=AES256", "-tzip"] if low.endswith(".zip") else ["-mhe=on"]
+            _run([exe, "a", "-bd", "-y", "-p"] + opts + ["--", archive] + list(names), cwd=cwd,
+                 password=password, twice=True)
+        elif low.endswith(ZIP_EXT):
             with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
                 for n in names:
                     full = os.path.join(cwd, n)
@@ -97,12 +119,49 @@ def _inside(dest, name):
     return target == root or target.startswith(root + os.sep)
 
 
-def extract(archive, dest):
-    """Extract `archive` into the folder `dest` (created). Refuses paths escaping `dest`."""
-    low = archive.lower()
+def extract(archive, dest, password=None):
+    """Extract `archive` into the folder `dest` (created). Refuses paths escaping `dest`.
+    Raises ArchiveError(needs_password=True) for an encrypted archive without / with a wrong
+    password."""
+    created = not os.path.exists(dest)
     os.makedirs(dest, exist_ok=True)
     try:
+        _extract(archive, dest, password)
+    except (ArchiveError, OSError, tarfile.TarError, zipfile.BadZipFile) as e:
+        if created:                       # do not leave a half-filled new folder behind
+            shutil.rmtree(dest, ignore_errors=True)
+        if isinstance(e, ArchiveError):
+            raise
+        raise ArchiveError(getattr(e, "strerror", None) or str(e))
+
+
+def _zip_encrypted(archive):
+    try:
+        with zipfile.ZipFile(archive) as z:
+            return any(i.flag_bits & 0x1 for i in z.infolist())
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+
+def _extract(archive, dest, password):
+    low = archive.lower()
+    exe = seven_zip()
+    try:
         if low.endswith(ZIP_EXT):
+            if _zip_encrypted(archive):
+                if password is None:
+                    raise ArchiveError(tr("The archive is password protected"), needs_password=True)
+                if exe:                   # handles AES as well as the old ZipCrypto
+                    _run([exe, "x", "-y", "-bd", "-o" + dest, "--", archive], password=password)
+                    return
+                with zipfile.ZipFile(archive) as z:
+                    try:
+                        z.extractall(dest, pwd=password.encode("utf-8"))
+                    except RuntimeError:
+                        raise ArchiveError(tr("Password needed or wrong"), needs_password=True)
+                    except NotImplementedError:
+                        raise ArchiveError(tr("Install p7zip to open this encrypted zip"))
+                return
             with zipfile.ZipFile(archive) as z:
                 for n in z.namelist():
                     if not _inside(dest, n):
@@ -126,9 +185,8 @@ def extract(archive, dest):
             return
     except (OSError, tarfile.TarError, zipfile.BadZipFile) as e:
         raise ArchiveError(getattr(e, "strerror", None) or str(e))
-    exe = seven_zip()
     if exe:
-        _run([exe, "x", "-y", "-bd", "-o" + dest, "--", archive])
+        _run([exe, "x", "-y", "-bd", "-o" + dest, "--", archive], password=password)
     elif shutil.which("bsdtar"):
         _run(["bsdtar", "-xf", archive, "-C", dest])
     elif low.endswith(".rar") and shutil.which("unrar"):
