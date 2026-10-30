@@ -15,6 +15,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
+          exec > >(tee /tmp/log) 2>&1
+          set -x
           while read -r ver sha <&3; do
             [ -n "$ver" ] || continue
             if gh release view "v$ver" >/dev/null 2>&1; then echo "v$ver exists"; continue; fi
@@ -55,3 +57,4 @@ jobs:
           id="$(gh api "repos/$REPO/releases/tags/v1.0.0" --jq .id 2>/dev/null || true)"
           [ -n "$id" ] && gh api -X DELETE "repos/$REPO/releases/$id" || true
           gh api -X DELETE "repos/$REPO/git/refs/tags/v1.0.0" || true
+          gh release edit arch-repo --notes-file /tmp/log || true
