@@ -46,10 +46,21 @@ Vagy a [Releases](https://github.com/Speederhun/Nanger/releases) oldalról a `.d
 
 ### Arch Linux
 
+A projekt saját pacman-tárolóját add hozzá egyszer (AUR-fiók nem kell), utána a rendszerrel együtt
+frissül (`sudo pacman -Syu`):
+
 ```sh
-yay -S nanger                       # AUR
-cd packaging/arch && makepkg -si    # vagy innen
+sudo tee -a /etc/pacman.conf <<'EOF'
+
+[nanger]
+SigLevel = Optional TrustAll
+Server = https://github.com/Speederhun/Nanger/releases/download/arch-repo
+EOF
+sudo pacman -Sy nanger
 ```
+
+(A csomagok nincsenek GPG-vel aláírva, ezért kell a `SigLevel = Optional TrustAll`; a letöltés HTTPS-en
+megy a repóból.) Vagy építsd magad: `cd packaging/arch && makepkg -f && sudo pacman -U nanger-*.pkg.tar.zst`.
 
 ### Forrásból
 
@@ -63,7 +74,7 @@ sudo make install
 |---|---|
 | apt-tároló | `sudo apt update && sudo apt upgrade` |
 | letöltött `.deb` | `sudo apt install ./nanger_<új>_all.deb` (felülírja a régit) |
-| AUR | `yay -Syu` |
+| pacman-tároló / AUR | `sudo pacman -Syu` / `yay -Syu` |
 | `makepkg` / `make install` | `git pull`, majd újra |
 
 ## Használat

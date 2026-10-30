@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.12.1
+
+- **Own pacman repository** (no AUR account needed): every release builds the Arch package in CI and
+  publishes `nanger.db` + the package as assets of the `arch-repo` release. Add the `[nanger]`
+  section from the README to `/etc/pacman.conf`; `sudo pacman -Syu` then updates nanger.
+
 ## 1.12.0
 
 - **Password-protected archives**: `U` asks for the password of encrypted `.zip` / `.7z` (and other

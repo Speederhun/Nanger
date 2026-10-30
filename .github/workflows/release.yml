@@ -16,6 +16,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      new: ${{ steps.v.outputs.new }}
+      version: ${{ steps.v.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -121,3 +124,46 @@ jobs:
           git add -A
           git diff --cached --quiet || git commit -qm "Update to $VERSION"
           git push origin master
+
+  # pacman repository: nanger.db + the package are release assets of the fixed tag "arch-repo",
+  # so Arch users add one [nanger] section to /etc/pacman.conf and `pacman -Syu` updates nanger.
+  arch:
+    needs: release
+    if: needs.release.outputs.new == 'yes' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    permissions:
+      contents: write
+    steps:
+      - name: Tools
+        run: pacman -Syu --noconfirm git github-cli python
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build the package
+        run: |
+          git config --global --add safe.directory '*'
+          useradd -m builder
+          chown -R builder:builder .
+          su builder -c 'cd packaging/arch && makepkg -f --noconfirm'
+      - name: Publish the repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd packaging/arch
+          rm -rf /tmp/repo && mkdir /tmp/repo
+          cp nanger-*.pkg.tar.zst /tmp/repo/
+          cd /tmp/repo
+          repo-add nanger.db.tar.gz nanger-*.pkg.tar.zst
+          cp -L nanger.db.tar.gz nanger.db
+          cp -L nanger.files.tar.gz nanger.files
+          cd "$GITHUB_WORKSPACE"
+          gh release view arch-repo >/dev/null 2>&1 || \
+            gh release create arch-repo --title "Arch Linux pacman repository" \
+              --notes "Automatic pacman repository (do not download by hand). Add to /etc/pacman.conf: see the README."
+          # drop the packages of older versions, then upload the new files
+          for old in $(gh release view arch-repo --json assets --jq '.assets[].name' | grep '\.pkg\.tar\.zst$' || true); do
+            gh release delete-asset arch-repo "$old" -y || true
+          done
+          gh release upload arch-repo /tmp/repo/nanger.db /tmp/repo/nanger.files \
+            /tmp/repo/nanger-*.pkg.tar.zst --clobber

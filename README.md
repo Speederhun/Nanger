@@ -49,11 +49,21 @@ same `PKGBUILD`; it is architecture-independent.)
 
 ### Arch Linux
 
+Add the project's own pacman repository once (no AUR account needed), then it updates with
+the system (`sudo pacman -Syu`):
+
 ```sh
-yay -S nanger          # AUR
-# or from this repository:
-cd packaging/arch && makepkg -si
+sudo tee -a /etc/pacman.conf <<'EOF'
+
+[nanger]
+SigLevel = Optional TrustAll
+Server = https://github.com/Speederhun/Nanger/releases/download/arch-repo
+EOF
+sudo pacman -Sy nanger
 ```
+
+(The packages are not GPG-signed, hence `SigLevel = Optional TrustAll`; the download is HTTPS
+from this repository.) Or build it yourself: `cd packaging/arch && makepkg -f && sudo pacman -U nanger-*.pkg.tar.zst`.
 
 ### macOS (Homebrew)
 
@@ -78,7 +88,7 @@ sudo make install        # PREFIX=/usr/local to change
 |---|---|
 | apt repository | `sudo apt update && sudo apt upgrade` |
 | downloaded `.deb` | `sudo apt install ./nanger_<new>_all.deb` |
-| AUR | `yay -Syu` |
+| pacman repository / AUR | `sudo pacman -Syu` / `yay -Syu` |
 | Homebrew (macOS) | `brew update && brew upgrade nanger` |
 | `makepkg` / `make install` | pull, then run it again |
 
