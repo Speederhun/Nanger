@@ -15,7 +15,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          while read -r ver sha; do
+          while read -r ver sha <&3; do
             [ -n "$ver" ] || continue
             if gh release view "v$ver" >/dev/null 2>&1; then echo "v$ver exists"; continue; fi
             git checkout -qf "$sha" && git clean -fdxq
@@ -29,7 +29,7 @@ jobs:
             gh release create "v$ver" dist/* --target "$sha" --title "nanger $ver" --notes-file /tmp/notes.md --latest=false \
               && echo "restored v$ver" || echo "FAILED v$ver"
             rm -rf dist
-          done <<'LIST'
+          done 3<<'LIST'
             1.2.0 a07ddcf086219553e064a747751faa4917d311e7
             1.2.1 bf216a42c2fb1582c9860651a5a32b0eab911357
             1.3.0 238cfe0d017e8a06774ae86d2bf2de9c707a8c87
