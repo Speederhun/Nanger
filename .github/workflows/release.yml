@@ -155,8 +155,9 @@ jobs:
           cp nanger-*.pkg.tar.zst /tmp/repo/
           cd /tmp/repo
           repo-add nanger.db.tar.gz nanger-*.pkg.tar.zst
-          cp -L nanger.db.tar.gz nanger.db
-          cp -L nanger.files.tar.gz nanger.files
+          rm -f nanger.db nanger.files          # repo-add made them symlinks to the .tar.gz
+          cp nanger.db.tar.gz nanger.db
+          cp nanger.files.tar.gz nanger.files
           cd "$GITHUB_WORKSPACE"
           gh release view arch-repo >/dev/null 2>&1 || \
             gh release create arch-repo --title "Arch Linux pacman repository" \
