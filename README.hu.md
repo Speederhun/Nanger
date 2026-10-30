@@ -5,30 +5,18 @@ szerkesztővel, amely olyan egyszerű, mint a nano (Ctrl-billentyűk, mindig lá
 de tud vim-es dolgokat is (regex-csere, `:g/minta/d`, rendezés, szűrés shell-parancson,
 makrók, visszavonás).
 
-## Újdonságok az 1.12-ben
+## Funkciók
 
-jelszóval védett archívumok: `U` bekéri a jelszót titkosított `.zip` / `.7z` kicsomagolásához, `Z`
-csomagoláskor opcionális jelszót kér (AES-256; p7zip kell). Az Arch/AUR automatikus frissítéshez
-egyszeri beállító szkript: `packaging/aur/setup-aur.sh`.
-
-## Újdonságok az 1.11-ben
-
-gyors szűrő (`F`), fülek (`Ctrl+T`, `Ctrl+W`, `[` `]`, `Alt+1…9`), osztott panel (`w`, `Tab` vált,
-`C`/`W` másol/mozgat a másik panelre), valamint kikötetlen ugrás-akciók a temp / home / gyökér
-mappába (a `K` / `F9` menüben rendelhetsz hozzájuk billentyűt).
-
-## Újdonságok az 1.10-ben
-
-színtémák (`T`: sötét, világos, Solarized, Gruvbox, Nord), jogosultság és tulajdonos a kijelölteken
-(`P`, `O`), fájl-összehasonlítás egymás mellett (`=`, szerkesztőben `:diff`), távoli mappák SSH-n
-(`M` vagy `nanger user@host:/mappa`, `sshfs` kell), automatikus mentés és helyreállítás
-(5 mp-enként pillanatkép; összeomlás vagy bezárt terminál után visszakérdez).
-
-## Újdonságok az 1.2-ben
-
-git-állapot a listában és a szerkesztő szélén, több megnyitott fájl (fülek), könyvjelzők
-(`m`, `'`), tömeges átnevezés (`R`), keresés a fájlokban (`f`, `:grep`), beállítófájl,
-angol és magyar felület, frissítés `apt upgrade`-del.
+- Háromoszlopos fájlkezelő előnézettel: szöveg, mappák, archívumok, **képek és PDF-ek**,
+  docx/odt/xlsx/pptx szövegesen; git-állapot a listában és a szerkesztő szélén
+- **Gyors szűrő** (`F`), **fülek** (`Ctrl+T`), **osztott panel** (`w`), könyvjelzők, tömeges átnevezés,
+  keresés névre és fájltartalomra, kukába törlés
+- **Csomagolás / kicsomagolás** (`.7z`, `.zip`, `.tar.*`), jelszóval védett archívumok (AES-256)
+- **Jogosultság és tulajdonos** (`P`, `O`), **összehasonlítás** egymás mellett (`=`, `:diff`)
+- **Távoli mappák SSH-n** (`M`, vagy `nanger user@host:/mappa`; kulcs vagy jelszó, `sshfs` kell)
+- **Automatikus mentés és helyreállítás** a szerkesztőben
+- **Színtémák** (`T`: sötét, világos, Solarized, Gruvbox, Nord, hacker), minden billentyű átállítható (`K` / `F9`)
+- Egér, magyar és angol felület, a shell követi a mappát kilépéskor (`nanger --install-shell`)
 
 ## Telepítés
 

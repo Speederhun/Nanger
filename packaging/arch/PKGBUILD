@@ -1,6 +1,6 @@
 # Maintainer: Speederhun <https://github.com/Speederhun/Nanger>
 pkgname=nanger
-pkgver=1.12.2
+pkgver=1.0.0
 pkgrel=1
 pkgdesc="File manager and text editor in one (ranger + nano + vim)"
 arch=('any')
