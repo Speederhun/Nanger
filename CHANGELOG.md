@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.12.2
+
+- README: on macOS run `brew trust speederhun/nanger` between `brew tap` and `brew install` (Homebrew 6+).
+
 ## 1.12.1
 
 - **Own pacman repository** (no AUR account needed): every release builds the Arch package in CI and

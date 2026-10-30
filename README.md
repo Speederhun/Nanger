@@ -69,8 +69,11 @@ from this repository.) Or build it yourself: `cd packaging/arch && makepkg -f &&
 
 ```sh
 brew tap Speederhun/nanger https://github.com/Speederhun/Nanger
+brew trust speederhun/nanger     # Homebrew 6+: third-party taps must be trusted first
 brew install nanger
 ```
+
+(Without the `brew trust` step newer Homebrew versions refuse to install from a third-party tap.)
 
 (For a private repository Homebrew needs git access: `gh auth login` or a
 `HOMEBREW_GITHUB_API_TOKEN`.) Without Homebrew: `sudo make install PREFIX=/usr/local`.

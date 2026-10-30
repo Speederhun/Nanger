@@ -62,6 +62,18 @@ sudo pacman -Sy nanger
 (A csomagok nincsenek GPG-vel aláírva, ezért kell a `SigLevel = Optional TrustAll`; a letöltés HTTPS-en
 megy a repóból.) Vagy építsd magad: `cd packaging/arch && makepkg -f && sudo pacman -U nanger-*.pkg.tar.zst`.
 
+### macOS (Homebrew)
+
+```sh
+brew tap Speederhun/nanger https://github.com/Speederhun/Nanger
+brew trust speederhun/nanger     # Homebrew 6+: harmadik fél tapját előbb meg kell bízni
+brew install nanger
+```
+
+(A `brew trust` lépés nélkül az újabb Homebrew nem telepít harmadik fél tapjából.) Frissítés:
+`brew update && brew upgrade nanger`. Homebrew nélkül: `sudo make install PREFIX=/usr/local`.
+A Terminal.appban az Alt-gyorsbillentyűkhöz: *Beállítások → Profilok → Billentyűzet → Option használata Meta billentyűként*.
+
 ### Forrásból
 
 ```sh
