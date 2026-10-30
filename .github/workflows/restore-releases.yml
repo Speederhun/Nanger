@@ -28,7 +28,8 @@ jobs:
             git archive --format=tar.gz --prefix="nanger-$ver/" -o "dist/nanger-$ver.tar.gz" "$sha"
             sed -n "/^## $ver\\b/{p;:a;n;/^## /q;p;ba}" CHANGELOG.md | sed '1d' > /tmp/notes.md
             [ -s /tmp/notes.md ] || echo "nanger $ver" > /tmp/notes.md
-            gh release create "v$ver" dist/* --target "$sha" --title "nanger $ver" --notes-file /tmp/notes.md --latest=false \
+            gh api "repos/$REPO/git/refs" -f ref="refs/tags/v$ver" -f sha="$sha" >/dev/null || echo "tag ref failed"
+            gh release create "v$ver" dist/* --title "nanger $ver" --notes-file /tmp/notes.md --latest=false \
               && echo "restored v$ver" || echo "FAILED v$ver"
             rm -rf dist
           done 3<<'LIST'
