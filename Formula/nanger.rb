@@ -3,7 +3,7 @@ class Nanger < Formula
 
   desc "File manager and text editor in one (ranger + nano + vim)"
   homepage "https://github.com/Speederhun/Nanger"
-  url "https://github.com/Speederhun/Nanger.git", tag: "v1.0.0"
+  url "https://github.com/Speederhun/Nanger.git", tag: "v1.12.2"
   license "MIT"
   head "https://github.com/Speederhun/Nanger.git", branch: "main"
 
